@@ -6,10 +6,10 @@ import { apiFetch } from '../../lib/api';
 type FactRecord = {
   employee_name: string;
   metric_code: string;
-  metric_value: number;
+  metric_value: number | string;
   unit: string;
   source_file: string;
-  confidence: number;
+  confidence: number | string | null;
 };
 
 type FactResponse = {
@@ -32,7 +32,30 @@ export default function FactsPage() {
       if (name) params.append('employee_name', name);
       if (metric) params.append('metric_code', metric);
       const data = await apiFetch<FactResponse>(`/api/workspaces/${workspace}/fact?${params.toString()}`);
-      setRecords(data.items ?? []);
+      const normalized = (data.items ?? []).map((item) => {
+        const metricValueRaw =
+          typeof item.metric_value === 'string' ? Number(item.metric_value) : item.metric_value;
+        const metricValue = Number.isNaN(metricValueRaw as number)
+          ? item.metric_value
+          : metricValueRaw;
+
+        let confidenceValue: number | null;
+        if (item.confidence === null || item.confidence === undefined) {
+          confidenceValue = null;
+        } else if (typeof item.confidence === 'number') {
+          confidenceValue = Number.isNaN(item.confidence) ? null : item.confidence;
+        } else {
+          const parsed = Number(item.confidence);
+          confidenceValue = Number.isNaN(parsed) ? null : parsed;
+        }
+
+        return {
+          ...item,
+          metric_value: metricValue,
+          confidence: confidenceValue,
+        };
+      });
+      setRecords(normalized);
     } catch (err) {
       setError(err instanceof Error ? err.message : '查询失败');
     } finally {
@@ -91,20 +114,24 @@ export default function FactsPage() {
                 </td>
               </tr>
             ) : (
-              records.map((record, index) => (
-                <tr key={`${record.employee_name}-${index}`} className={record.confidence < 0.7 ? 'bg-orange-50' : ''}>
-                  <td className="px-3 py-2">{record.employee_name}</td>
-                  <td className="px-3 py-2">{record.metric_code}</td>
-                  <td className="px-3 py-2">{record.metric_value}</td>
-                  <td className="px-3 py-2">{record.unit}</td>
-                  <td className="px-3 py-2 text-slate-500">{record.source_file}</td>
-                  <td className="px-3 py-2">
-                    <span className={`rounded px-2 py-1 text-xs font-medium ${record.confidence < 0.7 ? 'bg-orange-200 text-orange-800' : 'bg-emerald-100 text-emerald-700'}`}>
-                      {record.confidence.toFixed(2)}
-                    </span>
-                  </td>
-                </tr>
-              ))
+              records.map((record, index) => {
+                const confidenceValue = typeof record.confidence === 'number' ? record.confidence : null;
+                const rowConfidence = confidenceValue ?? 0;
+                return (
+                  <tr key={`${record.employee_name}-${index}`} className={rowConfidence < 0.7 ? 'bg-orange-50' : ''}>
+                    <td className="px-3 py-2">{record.employee_name}</td>
+                    <td className="px-3 py-2">{record.metric_code}</td>
+                    <td className="px-3 py-2">{record.metric_value}</td>
+                    <td className="px-3 py-2">{record.unit}</td>
+                    <td className="px-3 py-2 text-slate-500">{record.source_file}</td>
+                    <td className="px-3 py-2">
+                      <span className={`rounded px-2 py-1 text-xs font-medium ${rowConfidence < 0.7 ? 'bg-orange-200 text-orange-800' : 'bg-emerald-100 text-emerald-700'}`}>
+                        {confidenceValue !== null ? confidenceValue.toFixed(2) : '—'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
