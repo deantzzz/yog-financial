@@ -1,9 +1,8 @@
+import csv
 import os
 import sys
 from decimal import Decimal
 from pathlib import Path
-
-import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
@@ -35,9 +34,21 @@ def client(tmp_path, monkeypatch):
 
 
 def _write_csv(tmp_path: Path, filename: str, rows: list[dict]) -> Path:
-    df = pd.DataFrame(rows)
+    if not rows:
+        raise ValueError("rows must not be empty")
+
+    fieldnames: list[str] = []
+    for row in rows:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
+
     path = tmp_path / filename
-    df.to_csv(path, index=False)
+    with path.open("w", encoding="utf-8", newline="") as fp:
+        writer = csv.DictWriter(fp, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
     return path
 
 

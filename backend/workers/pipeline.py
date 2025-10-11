@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any
 import ast
 
-import pandas as pd
+try:  # pragma: no cover - import-time fallback
+    import pandas as pd
+except ModuleNotFoundError:  # pragma: no cover - executed in minimal envs
+    from backend.utils import simple_dataframe as pd
 
 from backend.core import state
 from backend.core import hashing, name_normalize
