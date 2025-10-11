@@ -1,8 +1,8 @@
+import csv
 import os
 import sys
+from decimal import Decimal
 from pathlib import Path
-
-import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
@@ -34,9 +34,21 @@ def client(tmp_path, monkeypatch):
 
 
 def _write_csv(tmp_path: Path, filename: str, rows: list[dict]) -> Path:
-    df = pd.DataFrame(rows)
+    if not rows:
+        raise ValueError("rows must not be empty")
+
+    fieldnames: list[str] = []
+    for row in rows:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
+
     path = tmp_path / filename
-    df.to_csv(path, index=False)
+    with path.open("w", encoding="utf-8", newline="") as fp:
+        writer = csv.DictWriter(fp, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
     return path
 
 
@@ -216,6 +228,89 @@ def test_timesheet_with_metadata_header_rows(client, tmp_path):
     facts = client.get(f"/api/workspaces/{ws_id}/fact").json()["items"]
     assert any(item["employee_name_norm"] == "赵六" and item["metric_code"] == "HOUR_TOTAL" for item in facts)
     assert any(item["employee_name_norm"] == "钱七" and item["metric_code"] == "HOUR_STD" for item in facts)
+
+
+def test_policy_ingestion_case_insensitive_columns(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-05"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    policy_rows = [
+        {
+            "Employee_Name_Norm": "王五",
+            "Period_Month": "2025-05",
+            "Mode": "salaried",
+            "Base_Amount": 12500,
+            "Ot_Weekday_Rate": 45,
+            "Social_Security_Json": {"employee": 0.08},
+        }
+    ]
+    policy_path = _write_csv(tmp_path, "policy_case.csv", policy_rows)
+    with policy_path.open("rb") as fp:
+        upload = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("policy_case.csv", fp, "text/csv")},
+        )
+    assert upload.status_code == 200
+
+    response = client.get(f"/api/workspaces/{ws_id}/policy")
+    items = response.json()["items"]
+    assert items
+    policy = next(item for item in items if item["employee_name_norm"] == "王五")
+
+    assert policy["mode"] == "SALARIED"
+    assert Decimal(str(policy["base_amount"])) == Decimal("12500")
+    assert Decimal(str(policy["ot_weekday_rate"])) == Decimal("45")
+    assert policy["ot_weekend_rate"] is None
+    assert policy["social_security_json"] == {"employee": 0.08}
+
+
+def test_period_month_normalisation_for_localised_strings(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-08"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    fact_rows = [
+        {
+            "employee_name": "李雷",
+            "period_month": "八月-Aug",
+            "metric_code": "HOUR_TOTAL",
+            "metric_value": 172,
+            "unit": "hour",
+        }
+    ]
+    fact_path = _write_csv(tmp_path, "localized_fact.csv", fact_rows)
+    with fact_path.open("rb") as fp:
+        upload_fact = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("localized_fact.csv", fp, "text/csv")},
+        )
+    assert upload_fact.status_code == 200
+
+    policy_rows = [
+        {
+            "employee_name_norm": "李雷",
+            "period_month": "八月-Aug",
+            "mode": "SALARIED",
+            "base_amount": 9800,
+        }
+    ]
+    policy_path = _write_csv(tmp_path, "localized_policy.csv", policy_rows)
+    with policy_path.open("rb") as fp:
+        upload_policy = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("localized_policy.csv", fp, "text/csv")},
+        )
+    assert upload_policy.status_code == 200
+
+    facts = client.get(f"/api/workspaces/{ws_id}/fact").json()["items"]
+    fact = next(item for item in facts if item["employee_name_norm"] == "李雷")
+    assert fact["period_month"] == "2025-08"
+
+    policies = client.get(f"/api/workspaces/{ws_id}/policy").json()["items"]
+    policy = next(item for item in policies if item["employee_name_norm"] == "李雷")
+    assert policy["period_month"] == "2025-08"
+
 
 def test_excel_heuristic_fallback(client, tmp_path):
     response = client.post("/api/workspaces", json={"month": "2025-03"})

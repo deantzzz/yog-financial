@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 import ast
 
-import pandas as pd
+try:  # pragma: no cover - import-time fallback
+    import pandas as pd
+except ModuleNotFoundError:  # pragma: no cover - executed in minimal envs
+    from backend.utils import simple_dataframe as pd
 
 from backend.core import state
 from backend.core import hashing, name_normalize
@@ -62,6 +66,65 @@ class PipelineWorker:
             return result
         except (InvalidOperation, TypeError):
             return Decimal(default)
+
+    @staticmethod
+    def _normalise_period_month(value: Any, fallback: str) -> str:
+        fallback = str(fallback or "1970-01")
+        fallback_match = re.fullmatch(r"(\d{4})-(\d{2})", fallback)
+        fallback_year = fallback_match.group(1) if fallback_match else "1970"
+        fallback_month = fallback_match.group(2) if fallback_match else "01"
+
+        if value is None:
+            return f"{fallback_year}-{fallback_month}"
+
+        raw = str(value).strip()
+        if not raw:
+            return f"{fallback_year}-{fallback_month}"
+
+        if re.fullmatch(r"\d{4}-\d{2}", raw):
+            return raw
+
+        year = fallback_year
+        month_number: int | None = None
+
+        digits = re.findall(r"\d+", raw)
+        for number in digits:
+            if len(number) == 4 and number.isdigit() and number.startswith(("19", "20")):
+                year = number
+            elif month_number is None:
+                try:
+                    candidate = int(number)
+                except ValueError:
+                    continue
+                if 1 <= candidate <= 12:
+                    month_number = candidate
+
+        lowered = raw.lower()
+        month_keywords: dict[int, tuple[str, ...]] = {
+            1: ("jan", "january", "一月", "壹月", "正月"),
+            2: ("feb", "february", "二月", "贰月"),
+            3: ("mar", "march", "三月", "叁月"),
+            4: ("apr", "april", "四月", "肆月"),
+            5: ("may", "五月", "伍月"),
+            6: ("jun", "june", "六月", "陆月"),
+            7: ("jul", "july", "七月", "柒月"),
+            8: ("aug", "august", "八月", "捌月"),
+            9: ("sep", "sept", "september", "九月", "玖月"),
+            10: ("oct", "october", "十月", "拾月"),
+            11: ("nov", "november", "十一月"),
+            12: ("dec", "december", "十二月", "腊月"),
+        }
+
+        if month_number is None:
+            for number, keywords in month_keywords.items():
+                if any(keyword in lowered for keyword in keywords):
+                    month_number = number
+                    break
+
+        if month_number is None:
+            month_number = int(fallback_month)
+
+        return f"{year}-{month_number:02d}"
 
     async def enqueue(self, payload: PipelineRequest) -> PipelineJob:
         async with self._lock:
@@ -256,7 +319,7 @@ class PipelineWorker:
             if not employee_name:
                 continue
             norm = row.get("employee_name_norm") or name_normalize.normalize(employee_name)
-            period = str(row.get("period_month") or payload.ws_id)
+            period = self._normalise_period_month(row.get("period_month"), payload.ws_id)
             metric_code = str(row.get("metric_code") or "")
             metric_raw = row.get("metric_value", "0")
             metric_value = self._safe_decimal(metric_raw or "0")
@@ -306,15 +369,27 @@ class PipelineWorker:
             store.add_fact(payload.ws_id, fact.model_dump())
 
     def _ingest_policy_rows(self, payload: PipelineRequest, job_id: str, dataframe: pd.DataFrame) -> None:
+        normalised_columns = {
+            str(column).strip().lower(): column for column in dataframe.columns
+        }
+
         required = {"employee_name_norm", "period_month", "mode"}
-        missing = [col for col in required if col not in {c.lower() for c in dataframe.columns}]
+        missing = [col for col in required if col not in normalised_columns]
         if missing:
             raise ValueError(f"口径数据缺少字段: {', '.join(missing)}")
 
         sha256 = hashing.sha256_file(payload.file_path)
         store = state.StateStore.instance()
-        for row in dataframe.to_dict(orient="records"):
-            norm = str(row.get("employee_name_norm") or "")
+        rows = dataframe.to_dict(orient="records")
+
+        def get_value(row: dict[str, Any], key: str) -> Any:
+            column = normalised_columns.get(key)
+            if column is None:
+                return None
+            return row.get(column)
+
+        for row in rows:
+            norm = str(get_value(row, "employee_name_norm") or "")
             if not norm:
                 continue
 
@@ -325,9 +400,11 @@ class PipelineWorker:
             payload_dict: dict[str, Any] = {
                 "ws_id": payload.ws_id,
                 "employee_name_norm": norm,
-                "period_month": str(row.get("period_month")),
-                "mode": str(row.get("mode")),
-                "snapshot_hash": row.get("snapshot_hash")
+                "period_month": self._normalise_period_month(
+                    get_value(row, "period_month"), payload.ws_id
+                ),
+                "mode": str(get_value(row, "mode") or "SALARIED").upper(),
+                "snapshot_hash": get_value(row, "snapshot_hash")
                 or hashing.sha256_text(
                     json.dumps(sanitized_row, sort_keys=True, ensure_ascii=False)
                 ),
@@ -343,11 +420,12 @@ class PipelineWorker:
                 "ot_weekday_rate",
                 "ot_weekend_rate",
             ]:
-                if row.get(key) is not None and row.get(key) != "":
-                    payload_dict[key] = self._safe_decimal(row.get(key))
+                value = get_value(row, key)
+                if value is not None and value != "":
+                    payload_dict[key] = self._safe_decimal(value)
 
             for json_key in ["allowances_json", "deductions_json", "tax_json", "social_security_json"]:
-                value = row.get(json_key)
+                value = get_value(row, json_key)
                 if isinstance(value, str):
                     try:
                         value = json.loads(value)
@@ -361,8 +439,9 @@ class PipelineWorker:
                 payload_dict[json_key] = value
 
             for text_key in ["valid_from", "valid_to", "source_sheet", "source_row_range"]:
-                if row.get(text_key):
-                    payload_dict[text_key] = str(row.get(text_key))
+                text_value = get_value(row, text_key)
+                if text_value:
+                    payload_dict[text_key] = str(text_value)
 
             payload_dict["source_sha256"] = sha256
             payload_dict["ingest_job_id"] = job_id
