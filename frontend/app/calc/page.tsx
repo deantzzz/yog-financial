@@ -12,8 +12,15 @@ type ResultRow = {
   ot_pay: number;
 };
 
+type RawResultRow = Omit<ResultRow, 'gross_pay' | 'net_pay' | 'base_pay' | 'ot_pay'> & {
+  gross_pay: number | string;
+  net_pay: number | string;
+  base_pay: number | string;
+  ot_pay: number | string;
+};
+
 type ResultsResponse = {
-  items: ResultRow[];
+  items: RawResultRow[];
 };
 
 export default function CalcPage() {
@@ -49,7 +56,23 @@ export default function CalcPage() {
     setMessage(null);
     try {
       const data = await apiFetch<ResultsResponse>(`/api/workspaces/${workspace}/results?period=${period}`);
-      setResults(data.items ?? []);
+      const toNumber = (value: number | string) => {
+        if (typeof value === 'number') {
+          return value;
+        }
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+
+      const normalized = (data.items ?? []).map((row) => ({
+        ...row,
+        gross_pay: toNumber(row.gross_pay),
+        net_pay: toNumber(row.net_pay),
+        base_pay: toNumber(row.base_pay),
+        ot_pay: toNumber(row.ot_pay)
+      }));
+
+      setResults(normalized);
       if (!data.items || data.items.length === 0) {
         setMessage('暂无结果，请确认任务是否完成。');
       }
