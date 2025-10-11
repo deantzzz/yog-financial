@@ -27,6 +27,7 @@ repo/
     components/             # 前端 UI 组件
     lib/                    # API 请求辅助函数
     package.json            # 前端依赖与脚本
+    Dockerfile              # 前端容器构建脚本
   infra/
     docker-compose.yml      # 可选的容器化运行环境
   workspaces/               # 运行期生成的工作区目录（需提前创建或在配置中指定）
@@ -142,8 +143,9 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
    docker compose -f infra/docker-compose.yml up --build
    ```
 
-   - Compose 默认挂载仓库根目录下的 `workspaces/` 与 `logs/`，仓库内已提供空目录占位，便于持久化解析结果与审计日志。
-   - FastAPI 服务默认监听 `8000` 端口。
+   - Compose 将同时启动后端（`app` 服务，端口 `8000`）与前端（`frontend` 服务，端口 `3000`）。
+   - 默认挂载仓库根目录下的 `workspaces/` 与 `logs/`，仓库内已提供空目录占位，便于持久化解析结果与审计日志。
+   - 前端容器通过 `NEXT_PUBLIC_API_BASE_URL=http://app:8000` 与后端通信，若需自定义请调整 `infra/docker-compose.yml`。
 
 ## 数据与审计
 
