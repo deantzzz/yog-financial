@@ -22,6 +22,11 @@ repo/
     workers/                # 顺序任务编排器
     config/                 # 默认口径、税表配置
     exporters/              # 发薪/税局导出
+  frontend/
+    app/                    # Next.js App Router 页面
+    components/             # 前端 UI 组件
+    lib/                    # API 请求辅助函数
+    package.json            # 前端依赖与脚本
   infra/
     docker-compose.yml      # 可选的容器化运行环境
   workspaces/               # 运行期生成的工作区目录（需提前创建或在配置中指定）
@@ -59,6 +64,45 @@ repo/
    ```
 
 4. 访问 `http://127.0.0.1:8000/docs` 查看自动生成的 OpenAPI 文档。
+
+## 前端控制台
+
+前端使用 Next.js + Tailwind CSS 实现最小可用界面，覆盖“上传/事实/口径/计算”四个核心页面，主要用于演示如何与后端交互。
+
+1. 安装依赖：
+
+   ```bash
+   cd frontend
+   npm install
+   ```
+
+2. 创建 `.env.local`（可选），用于覆盖默认的后端接口地址：
+
+   ```env
+   NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+   ```
+
+3. 启动开发服务器：
+
+   ```bash
+   npm run dev
+   ```
+
+4. 访问 `http://127.0.0.1:3000`，即可查看控制台：
+
+   - **上传与任务**：选择工作区并上传文件，查看解析状态；
+   - **事实数据**：按姓名、指标过滤事实层数据，低置信度将高亮；
+   - **口径快照**：查看当前口径参数，支持展开 JSON 详情；
+   - **计算与导出**：触发计算并浏览结果，后续可在后端导出银行/税务文件。
+
+构建与部署：
+
+```bash
+npm run build
+npm start
+```
+
+Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `http://127.0.0.1:8000`）。部署时请根据实际域名与 HTTPS 配置调整。
 
 ## 环境变量说明
 

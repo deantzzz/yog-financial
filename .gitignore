@@ -6,3 +6,6 @@ workspaces/
 logs/
 *.parquet
 *.csv
+frontend/node_modules/
+frontend/.next/
+frontend/.turbo/
