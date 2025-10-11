@@ -1,0 +1,9 @@
+default_threshold: 5000
+brackets:
+  - {limit: 3000, rate: 0.03}
+  - {limit: 12000, rate: 0.1}
+  - {limit: 25000, rate: 0.2}
+  - {limit: 35000, rate: 0.25}
+  - {limit: 55000, rate: 0.3}
+  - {limit: 80000, rate: 0.35}
+  - {limit: null, rate: 0.45}
