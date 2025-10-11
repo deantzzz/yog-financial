@@ -142,15 +142,15 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
    docker compose -f infra/docker-compose.yml up --build
    ```
 
+   - Compose 默认挂载仓库根目录下的 `workspaces/` 与 `logs/`，仓库内已提供空目录占位，便于持久化解析结果与审计日志。
    - FastAPI 服务默认监听 `8000` 端口。
-   - 如果需要挂载本地 `workspaces` 目录，请在 Compose 文件中配置卷映射。
 
 ## 数据与审计
 
 - **事实层**：`workspaces/{YYYY-MM}/fact/fact_records.parquet`
 - **口径快照**：`workspaces/{YYYY-MM}/policy/payroll_policy_{YYYY-MM}.parquet`
 - **计算结果**：`workspaces/{YYYY-MM}/results/`
-- **审计日志**：`logs/ingestion_audit.log`（若未自动创建需手动建立 `logs/` 目录）
+- **审计日志**：`logs/ingestion_audit.log`
 
 所有记录都包含 `source_file`、`source_sheet`、`source_row` 等字段，便于追溯原始数据来源。
 

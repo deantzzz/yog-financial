@@ -2,8 +2,10 @@ __pycache__/
 *.py[cod]
 .venv/
 .env
-workspaces/
-logs/
+workspaces/*
+!workspaces/.gitkeep
+logs/*
+!logs/.gitkeep
 *.parquet
 *.csv
 frontend/node_modules/

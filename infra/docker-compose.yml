@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   app:
     build:
@@ -13,8 +11,3 @@ services:
       - ../workspaces:/app/workspaces
       - ../logs:/app/logs
     command: ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
-
-  duckdb:
-    image: ghcr.io/duckdb/duckdb-wasm:latest
-    restart: unless-stopped
-    command: ["/bin/true"]
