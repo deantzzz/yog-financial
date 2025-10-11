@@ -171,6 +171,52 @@ def test_excel_templates_pipeline(client, tmp_path):
     assert calc.json()["items"]
 
 
+def test_timesheet_with_metadata_header_rows(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-04"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "月度工时"
+    sheet.append(["填报单位", "卓迈科技", None, None, None, None, None, None])
+    sheet.append(["月份", "2025-04", None, None, None, None, None, None])
+    sheet.append([None, None, None, None, None, None, None, None])
+    sheet.append(
+        [
+            "序号",
+            "部门",
+            "姓名",
+            "工作日标准工时",
+            "工作日加班工时",
+            "周末节假日打卡工时",
+            "当月工时（已公式加和）",
+            "确认工时",
+        ]
+    )
+    sheet.append([1, "生产部", "赵六", 150, 20, 8, 178, 178])
+    sheet.append([2, "生产部", "钱七", 160, 18, 6, 184, 184])
+
+    path = tmp_path / "metadata_timesheet.xlsx"
+    workbook.save(path)
+
+    with path.open("rb") as fp:
+        upload = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={
+                "file": (
+                    "metadata_timesheet.xlsx",
+                    fp,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+    assert upload.status_code == 200
+
+    facts = client.get(f"/api/workspaces/{ws_id}/fact").json()["items"]
+    assert any(item["employee_name_norm"] == "赵六" and item["metric_code"] == "HOUR_TOTAL" for item in facts)
+    assert any(item["employee_name_norm"] == "钱七" and item["metric_code"] == "HOUR_STD" for item in facts)
+
 def test_excel_heuristic_fallback(client, tmp_path):
     response = client.post("/api/workspaces", json={"month": "2025-03"})
     assert response.status_code == 200
