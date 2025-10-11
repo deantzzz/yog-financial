@@ -116,6 +116,7 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
 | `TIMEZONE` | 系统默认时区，默认为 `Asia/Shanghai` |
 | `WORKSPACE_ROOT` | 工作区根目录，默认 `workspaces` |
 | `LOG_LEVEL` | FastAPI 应用日志等级，可选 `INFO`/`DEBUG` |
+| `API_CORS_ORIGINS` | 允许跨域访问的前端来源，逗号分隔，默认包含 `http://localhost:3000` |
 
 > 当前仓库中的 `backend/extractors/generic_llm.py` 为预留入口，实际接入 Azure OpenAI 时请确保上述变量已配置，并在运行环境中可见（`.env` 或部署平台配置）。
 
@@ -146,6 +147,7 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
    - Compose 将同时启动后端（`app` 服务，端口 `8000`）与前端（`frontend` 服务，端口 `3000`）。
    - 默认挂载仓库根目录下的 `workspaces/` 与 `logs/`，仓库内已提供空目录占位，便于持久化解析结果与审计日志。
    - 前端容器通过 `NEXT_PUBLIC_API_BASE_URL=http://app:8000` 与后端通信，若需自定义请调整 `infra/docker-compose.yml`。
+   - 前端镜像使用 Next.js `standalone` 模式构建，入口命令为 `node server.js`，能够正确处理生产部署的运行参数。
 
 ## 数据与审计
 
