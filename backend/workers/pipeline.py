@@ -306,15 +306,27 @@ class PipelineWorker:
             store.add_fact(payload.ws_id, fact.model_dump())
 
     def _ingest_policy_rows(self, payload: PipelineRequest, job_id: str, dataframe: pd.DataFrame) -> None:
+        normalised_columns = {
+            str(column).strip().lower(): column for column in dataframe.columns
+        }
+
         required = {"employee_name_norm", "period_month", "mode"}
-        missing = [col for col in required if col not in {c.lower() for c in dataframe.columns}]
+        missing = [col for col in required if col not in normalised_columns]
         if missing:
             raise ValueError(f"口径数据缺少字段: {', '.join(missing)}")
 
         sha256 = hashing.sha256_file(payload.file_path)
         store = state.StateStore.instance()
-        for row in dataframe.to_dict(orient="records"):
-            norm = str(row.get("employee_name_norm") or "")
+        rows = dataframe.to_dict(orient="records")
+
+        def get_value(row: dict[str, Any], key: str) -> Any:
+            column = normalised_columns.get(key)
+            if column is None:
+                return None
+            return row.get(column)
+
+        for row in rows:
+            norm = str(get_value(row, "employee_name_norm") or "")
             if not norm:
                 continue
 
@@ -325,9 +337,9 @@ class PipelineWorker:
             payload_dict: dict[str, Any] = {
                 "ws_id": payload.ws_id,
                 "employee_name_norm": norm,
-                "period_month": str(row.get("period_month")),
-                "mode": str(row.get("mode")),
-                "snapshot_hash": row.get("snapshot_hash")
+                "period_month": str(get_value(row, "period_month") or payload.ws_id),
+                "mode": str(get_value(row, "mode") or "SALARIED").upper(),
+                "snapshot_hash": get_value(row, "snapshot_hash")
                 or hashing.sha256_text(
                     json.dumps(sanitized_row, sort_keys=True, ensure_ascii=False)
                 ),
@@ -343,11 +355,12 @@ class PipelineWorker:
                 "ot_weekday_rate",
                 "ot_weekend_rate",
             ]:
-                if row.get(key) is not None and row.get(key) != "":
-                    payload_dict[key] = self._safe_decimal(row.get(key))
+                value = get_value(row, key)
+                if value is not None and value != "":
+                    payload_dict[key] = self._safe_decimal(value)
 
             for json_key in ["allowances_json", "deductions_json", "tax_json", "social_security_json"]:
-                value = row.get(json_key)
+                value = get_value(row, json_key)
                 if isinstance(value, str):
                     try:
                         value = json.loads(value)
@@ -361,8 +374,9 @@ class PipelineWorker:
                 payload_dict[json_key] = value
 
             for text_key in ["valid_from", "valid_to", "source_sheet", "source_row_range"]:
-                if row.get(text_key):
-                    payload_dict[text_key] = str(row.get(text_key))
+                text_value = get_value(row, text_key)
+                if text_value:
+                    payload_dict[text_key] = str(text_value)
 
             payload_dict["source_sha256"] = sha256
             payload_dict["ingest_job_id"] = job_id

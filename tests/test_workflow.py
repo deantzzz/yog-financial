@@ -1,5 +1,6 @@
 import os
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
@@ -216,6 +217,42 @@ def test_timesheet_with_metadata_header_rows(client, tmp_path):
     facts = client.get(f"/api/workspaces/{ws_id}/fact").json()["items"]
     assert any(item["employee_name_norm"] == "赵六" and item["metric_code"] == "HOUR_TOTAL" for item in facts)
     assert any(item["employee_name_norm"] == "钱七" and item["metric_code"] == "HOUR_STD" for item in facts)
+
+
+def test_policy_ingestion_case_insensitive_columns(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-05"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    policy_rows = [
+        {
+            "Employee_Name_Norm": "王五",
+            "Period_Month": "2025-05",
+            "Mode": "salaried",
+            "Base_Amount": 12500,
+            "Ot_Weekday_Rate": 45,
+            "Social_Security_Json": {"employee": 0.08},
+        }
+    ]
+    policy_path = _write_csv(tmp_path, "policy_case.csv", policy_rows)
+    with policy_path.open("rb") as fp:
+        upload = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("policy_case.csv", fp, "text/csv")},
+        )
+    assert upload.status_code == 200
+
+    response = client.get(f"/api/workspaces/{ws_id}/policy")
+    items = response.json()["items"]
+    assert items
+    policy = next(item for item in items if item["employee_name_norm"] == "王五")
+
+    assert policy["mode"] == "SALARIED"
+    assert Decimal(str(policy["base_amount"])) == Decimal("12500")
+    assert Decimal(str(policy["ot_weekday_rate"])) == Decimal("45")
+    assert policy["ot_weekend_rate"] is None
+    assert policy["social_security_json"] == {"employee": 0.08}
+
 
 def test_excel_heuristic_fallback(client, tmp_path):
     response = client.post("/api/workspaces", json={"month": "2025-03"})
