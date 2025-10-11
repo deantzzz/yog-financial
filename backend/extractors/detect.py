@@ -57,28 +57,44 @@ def _contains_keywords(columns: Iterable[str], keywords: Iterable[str]) -> bool:
     return any(keyword.lower() in col for col in lowered for keyword in keywords)
 
 
-def _detect_from_frame(frame: pd.DataFrame) -> str | None:
-    if frame.empty:
+def _detect_from_tokens(tokens: Iterable[str]) -> str | None:
+    lowered = [token.strip().lower() for token in tokens if isinstance(token, str) and token.strip()]
+    if not lowered:
         return None
 
-    # ``metric_code`` is our canonical fact import schema
-    lowered = _column_tokens(frame.columns)
     if "metric_code" in lowered:
         return "fact_table"
     if "mode" in lowered and "employee_name_norm" in lowered:
         return "policy_table"
 
-    if (
-        _contains_keywords(frame.columns, KEYWORDS_POLICY)
-        and any(core.lower() in col for col in _column_tokens(frame.columns) for core in POLICY_CORE)
+    if any(keyword.lower() in token for token in lowered for keyword in KEYWORDS_POLICY) and any(
+        core.lower() in token for token in lowered for core in POLICY_CORE
     ):
         return "policy_sheet"
-    if _contains_keywords(frame.columns, KEYWORDS_TIMESHEET_AGG):
+    if any(keyword.lower() in token for token in lowered for keyword in KEYWORDS_TIMESHEET_AGG):
         return "timesheet_aggregate"
-    if _contains_keywords(frame.columns, KEYWORDS_TIMESHEET_PERSONAL):
+    if any(keyword.lower() in token for token in lowered for keyword in KEYWORDS_TIMESHEET_PERSONAL):
         return "timesheet_personal"
-    if _contains_keywords(frame.columns, KEYWORDS_ROSTER):
+    if any(keyword.lower() in token for token in lowered for keyword in KEYWORDS_ROSTER):
         return "roster_sheet"
+    return None
+
+
+def _detect_from_frame(frame: pd.DataFrame) -> str | None:
+    if frame.empty:
+        return None
+
+    schema = _detect_from_tokens(frame.columns)
+    if schema:
+        return schema
+
+    # When the real header is not the first row pandas will treat the data
+    # rows as the header.  Iterate over the sample rows and attempt detection
+    # using each row as if it were the header.
+    for _, row in frame.iterrows():
+        schema = _detect_from_tokens(row.tolist())
+        if schema:
+            return schema
     return None
 
 
