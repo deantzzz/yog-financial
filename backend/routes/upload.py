@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from backend.core import state
 from backend.workers.pipeline import PipelineRequest, get_pipeline_worker
+from backend.core.workspaces import save_raw_file
 
 router = APIRouter(prefix="/workspaces", tags=["upload"])
 
@@ -14,9 +16,11 @@ async def upload_file(ws_id: str, file: UploadFile = File(...)) -> dict:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Uploaded file must have a filename")
 
-    payload = PipelineRequest(ws_id=ws_id, filename=file.filename)
+    safe_name = Path(file.filename).name
+    raw_path = save_raw_file(ws_id, safe_name, file.file)
+
+    payload = PipelineRequest(ws_id=ws_id, filename=safe_name, file_path=raw_path, content_type=file.content_type)
     worker = get_pipeline_worker()
     job = await worker.enqueue(payload)
-    state.StateStore.instance().register_upload(ws_id=ws_id, job_id=job.job_id, filename=file.filename)
 
     return {"job_id": job.job_id, "status": job.status}

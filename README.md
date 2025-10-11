@@ -1,12 +1,12 @@
 # 财务自动化结算系统（Yog Financial）
 
-Yog Financial 是一个围绕“工作区/月度隔离”理念构建的工资核算自动化平台。系统聚合工时、工资口径、社保个税等多源数据，确保计算过程可审计、可重跑。本仓库当前处于 MVP 阶段，重点提供后端服务骨架、规则引擎 V1、基础导出能力以及容器化部署配置。
+Yog Financial 是一个围绕“工作区/月度隔离”理念构建的工资核算自动化平台。系统聚合工时、工资口径、社保个税等多源数据，确保计算过程可审计、可重跑。本仓库当前处于 MVP 阶段，提供可运行的 FastAPI 后端、Next.js 控制台、最小化的解析流水线与规则引擎，并配套完整的测试与容器化配置，便于快速演示与二次开发。
 
 ## 功能概览
 
 - **工作区管理**：按月份创建独立工作区，隔离原始文件与计算结果。
-- **文件解析流水线**：基于模板解析器优先、LLM 兜底的原则，串联上传 → 解析 → CSV 标准化 → 事实层合并。
-- **事实层与口径快照**：使用 DuckDB/Parquet 存储原子事实数据和当月口径，保障追溯能力。
+- **文件解析流水线**：支持对 CSV/JSON 模板的自动识别与入库，完成上传 → 解析 → 标准化存储的端到端流程。
+- **事实层与口径快照**：将解析结果写入内存状态与工作区目录，保留来源哈希与审计信息，为后续扩展到 DuckDB/Parquet 做好准备。
 - **规则引擎 V1**：支持固定薪、计时薪两类模式，加班、津贴/扣款、社保个税等基础规则。
 - **导出与审计**：生成银行发薪 CSV、税局导入 CSV，并保留每条结果对应的快照哈希与来源文件。
 
@@ -66,6 +66,8 @@ repo/
 
 4. 访问 `http://127.0.0.1:8000/docs` 查看自动生成的 OpenAPI 文档。
 
+> 提示：可使用 `samples/` 目录中的示例 CSV 测试上传、解析与计算流程。
+
 ## 前端控制台
 
 前端使用 Next.js + Tailwind CSS 实现最小可用界面，覆盖“上传/事实/口径/计算”四个核心页面，主要用于演示如何与后端交互。
@@ -114,7 +116,7 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
 | `AZURE_OPENAI_API_VERSION` | API 版本，默认 `2024-06-01` |
 | `AZURE_OPENAI_DEPLOYMENT` | 部署名称，例如 `gp4o-json` |
 | `TIMEZONE` | 系统默认时区，默认为 `Asia/Shanghai` |
-| `WORKSPACE_ROOT` | 工作区根目录，默认 `workspaces` |
+| `WORKSPACES_ROOT` | 工作区根目录，默认 `workspaces` |
 | `LOG_LEVEL` | FastAPI 应用日志等级，可选 `INFO`/`DEBUG` |
 | `API_CORS_ORIGINS` | 允许跨域访问的前端来源，逗号分隔，默认包含 `http://localhost:3000` |
 
@@ -122,12 +124,27 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
 
 ## 工作流简介
 
-1. **创建工作区**：调用 `POST /api/workspaces`，指定月份（`YYYY-MM`），系统将在 `WORKSPACE_ROOT` 下创建目录结构。
-2. **上传文件**：调用 `POST /api/workspaces/{ws}/upload` 上传 Excel/CSV/PDF 等原始文件。流水线会尝试自动识别模板类型并解析。
-3. **事实层合并**：解析后的 CSV 会被写入 `fact/fact_records.parquet`，同时生成审计日志。
-4. **口径快照**：工资口径、社保口径等信息会写入 `policy/payroll_policy_{month}.parquet`，支持跨月生效区间。
-5. **触发计算**：调用 `POST /api/workspaces/{ws}/calc`，规则引擎根据事实层与口径快照生成 `results/payroll_{month}.parquet` 与导出文件。
-6. **导出结果**：通过 `/api/workspaces/{ws}/export/bank`、`/api/workspaces/{ws}/export/tax` 生成标准导入文件，或查询 `/api/workspaces/{ws}/results` 查看结果。
+1. **创建工作区**：调用 `POST /api/workspaces`，指定月份（`YYYY-MM`），系统将在 `WORKSPACES_ROOT` 下创建目录结构。
+2. **上传文件**：调用 `POST /api/workspaces/{ws}/upload` 上传 CSV/JSON 文件。流水线会自动落盘原始文件并尝试识别模板类型。
+3. **事实层合并**：识别为事实数据的记录会解析为统一字段，存放在内存状态与 `workspaces/{ws}/csv/`，并附带来源哈希。
+4. **口径快照**：识别为口径数据的记录会生成 `PolicySnapshot` 并写入状态，同时保留原始行 JSON，方便追溯与调试。
+5. **触发计算**：调用 `POST /api/workspaces/{ws}/calc`，规则引擎基于当前事实/口径数据计算工资结果，并持久化于工作区状态中。
+6. **导出结果**：查询 `/api/workspaces/{ws}/results` 获取已计算的记录，或后续扩展导出模块生成银行/税务文件。
+
+## 示例数据与模板格式
+
+仓库在 `samples/` 目录下提供了最小化的 CSV 示例，可用于快速体验：
+
+- `facts_sample.csv`：包含 `employee_name`、`period_month`、`metric_code`、`metric_value` 等字段，上传后会生成事实记录；
+- `policy_sample.csv`：包含 `employee_name_norm`、`mode`、`base_amount`、`ot_*` 等字段，上传后会生成口径快照。
+
+流水线当前支持以下格式：
+
+- **事实数据 CSV/JSON**：必须包含 `employee_name`、`period_month`、`metric_code`、`metric_value`，可选列会自动透传至审计字段；
+- **口径数据 CSV/JSON**：必须包含 `employee_name_norm`、`period_month`、`mode`，其余金额/倍率字段将自动转换为 `Decimal`；
+- **其他类型文件**：会被安全存储在 `raw/` 目录，并生成一条占位记录提示人工介入。
+
+如需扩展更多模板或解析器，可在 `backend/workers/pipeline.py` 中添加新的探测与解析逻辑，或编写专用的 extractor 模块。
 
 ## Docker 运行
 
@@ -151,12 +168,11 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
 
 ## 数据与审计
 
-- **事实层**：`workspaces/{YYYY-MM}/fact/fact_records.parquet`
-- **口径快照**：`workspaces/{YYYY-MM}/policy/payroll_policy_{YYYY-MM}.parquet`
-- **计算结果**：`workspaces/{YYYY-MM}/results/`
-- **审计日志**：`logs/ingestion_audit.log`
-
-所有记录都包含 `source_file`、`source_sheet`、`source_row` 等字段，便于追溯原始数据来源。
+- **原始文件**：保存在 `workspaces/{YYYY-MM}/raw/`，文件名会进行清洗避免目录穿越；
+- **标准化副本**：CSV/JSON 会同步复制至 `csv/`、`json/` 子目录，方便进行二次处理；
+- **解析记录**：在内存状态中保留字段齐全的事实与口径条目，附带 `source_file`、`source_sha256` 等追溯信息；
+- **计算结果**：`POST /calc` 后会缓存最新结果，便于前端查询或导出扩展；
+- **审计日志**：建议在真实场景中对 `state` 操作增加结构化日志，本仓库提供的 `logs/` 目录作为占位示例。
 
 ## 测试与自检
 
@@ -166,6 +182,7 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
 
   ```bash
   python -m compileall backend  # 快速检查语法错误
+  pytest -q                     # 运行端到端 API 测试
   ```
 
 ## 常见问题（FAQ）
