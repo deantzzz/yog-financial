@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -62,6 +63,65 @@ class PipelineWorker:
             return result
         except (InvalidOperation, TypeError):
             return Decimal(default)
+
+    @staticmethod
+    def _normalise_period_month(value: Any, fallback: str) -> str:
+        fallback = str(fallback or "1970-01")
+        fallback_match = re.fullmatch(r"(\d{4})-(\d{2})", fallback)
+        fallback_year = fallback_match.group(1) if fallback_match else "1970"
+        fallback_month = fallback_match.group(2) if fallback_match else "01"
+
+        if value is None:
+            return f"{fallback_year}-{fallback_month}"
+
+        raw = str(value).strip()
+        if not raw:
+            return f"{fallback_year}-{fallback_month}"
+
+        if re.fullmatch(r"\d{4}-\d{2}", raw):
+            return raw
+
+        year = fallback_year
+        month_number: int | None = None
+
+        digits = re.findall(r"\d+", raw)
+        for number in digits:
+            if len(number) == 4 and number.isdigit() and number.startswith(("19", "20")):
+                year = number
+            elif month_number is None:
+                try:
+                    candidate = int(number)
+                except ValueError:
+                    continue
+                if 1 <= candidate <= 12:
+                    month_number = candidate
+
+        lowered = raw.lower()
+        month_keywords: dict[int, tuple[str, ...]] = {
+            1: ("jan", "january", "一月", "壹月", "正月"),
+            2: ("feb", "february", "二月", "贰月"),
+            3: ("mar", "march", "三月", "叁月"),
+            4: ("apr", "april", "四月", "肆月"),
+            5: ("may", "五月", "伍月"),
+            6: ("jun", "june", "六月", "陆月"),
+            7: ("jul", "july", "七月", "柒月"),
+            8: ("aug", "august", "八月", "捌月"),
+            9: ("sep", "sept", "september", "九月", "玖月"),
+            10: ("oct", "october", "十月", "拾月"),
+            11: ("nov", "november", "十一月"),
+            12: ("dec", "december", "十二月", "腊月"),
+        }
+
+        if month_number is None:
+            for number, keywords in month_keywords.items():
+                if any(keyword in lowered for keyword in keywords):
+                    month_number = number
+                    break
+
+        if month_number is None:
+            month_number = int(fallback_month)
+
+        return f"{year}-{month_number:02d}"
 
     async def enqueue(self, payload: PipelineRequest) -> PipelineJob:
         async with self._lock:
@@ -256,7 +316,7 @@ class PipelineWorker:
             if not employee_name:
                 continue
             norm = row.get("employee_name_norm") or name_normalize.normalize(employee_name)
-            period = str(row.get("period_month") or payload.ws_id)
+            period = self._normalise_period_month(row.get("period_month"), payload.ws_id)
             metric_code = str(row.get("metric_code") or "")
             metric_raw = row.get("metric_value", "0")
             metric_value = self._safe_decimal(metric_raw or "0")
@@ -337,7 +397,9 @@ class PipelineWorker:
             payload_dict: dict[str, Any] = {
                 "ws_id": payload.ws_id,
                 "employee_name_norm": norm,
-                "period_month": str(get_value(row, "period_month") or payload.ws_id),
+                "period_month": self._normalise_period_month(
+                    get_value(row, "period_month"), payload.ws_id
+                ),
                 "mode": str(get_value(row, "mode") or "SALARIED").upper(),
                 "snapshot_hash": get_value(row, "snapshot_hash")
                 or hashing.sha256_text(
