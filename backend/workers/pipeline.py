@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 import ast
+import logging
 
 try:  # pragma: no cover - import-time fallback
     import pandas as pd
@@ -27,6 +28,10 @@ from backend.extractors import (
     timesheet_aggregate as aggregate_parser,
     timesheet_personal as personal_parser,
 )
+from backend.infrastructure import get_ocr_client
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -144,6 +149,7 @@ class PipelineWorker:
     def _process_file(self, payload: PipelineRequest, job_id: str) -> None:
         ensure_workspace_root(payload.ws_id)
         suffix = payload.file_path.suffix.lower()
+        template = detect.detect(payload.file_path)
         if suffix == ".csv":
             copy_into_zone(payload.ws_id, payload.file_path, "csv")
             self._ingest_csv(payload, job_id)
@@ -151,7 +157,6 @@ class PipelineWorker:
             copy_into_zone(payload.ws_id, payload.file_path, "json")
             self._ingest_json(payload, job_id)
         elif suffix in {".xlsx", ".xls", ".xlsm"}:
-            template = detect.detect(payload.file_path)
             sheet_name = template.sheet
             handled_fact = False
             handled_policy = False
@@ -232,8 +237,66 @@ class PipelineWorker:
 
             if not handled_fact and not handled_policy:
                 self._record_unparsed(payload, job_id)
+        elif template.schema in {"image_document", "unstructured_document", "text_document"} or template.requires_ocr:
+            copy_into_zone(payload.ws_id, payload.file_path, "documents")
+            self._ingest_unstructured(payload, job_id, template)
         else:
             self._record_unparsed(payload, job_id)
+
+    def _ingest_unstructured(
+        self,
+        payload: PipelineRequest,
+        job_id: str,
+        template: detect.DetectedTemplate,
+    ) -> None:
+        client = get_ocr_client()
+        metadata: dict[str, Any]
+        if template.requires_ocr:
+            result = client.extract_text(payload.file_path)
+            text = result.text
+            confidence = result.confidence
+            metadata = dict(result.metadata or {})
+        else:
+            try:
+                text = payload.file_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                text = payload.file_path.read_text(encoding="utf-8", errors="ignore")
+            confidence = None
+            metadata = {"provider": "native", "reason": "text document"}
+
+        metadata.setdefault("schema", template.schema)
+        metadata.setdefault("requires_ocr", template.requires_ocr)
+
+        root = ensure_workspace_root(payload.ws_id)
+        target = root / "ocr" / f"{payload.file_path.stem}.json"
+        with target.open("w", encoding="utf-8") as fp:
+            json.dump(
+                {
+                    "schema": template.schema,
+                    "requires_ocr": template.requires_ocr,
+                    "text": text,
+                    "confidence": confidence,
+                    "metadata": metadata,
+                },
+                fp,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+        record = {
+            "ws_id": payload.ws_id,
+            "source_file": payload.filename,
+            "source_sha256": hashing.sha256_file(payload.file_path),
+            "schema": template.schema,
+            "requires_ocr": template.requires_ocr,
+            "ocr_text": text,
+            "ocr_confidence": confidence,
+            "ocr_metadata": metadata,
+            "ingest_job_id": job_id,
+        }
+        service = get_workspace_service()
+        service.add_document_record(payload.ws_id, record)
+        logger.debug("Stored unstructured document %s for workspace %s", payload.filename, payload.ws_id)
 
     def _ingest_csv(self, payload: PipelineRequest, job_id: str) -> None:
         dataframe = pd.read_csv(payload.file_path)

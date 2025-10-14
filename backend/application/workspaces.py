@@ -48,6 +48,12 @@ class WorkspaceService:
     def add_policy(self, ws_id: str, record: dict) -> None:
         self._repository.add_policy(ws_id, record)
 
+    def add_document_record(self, ws_id: str, record: dict) -> None:
+        self._repository.add_document(ws_id, record)
+
+    def list_documents(self, ws_id: str) -> list[dict]:
+        return self._repository.list_documents(ws_id)
+
     def get_fact_snapshot(self, ws_id: str) -> dict[str, object]:
         return self._repository.get_fact_snapshot(ws_id)
 
