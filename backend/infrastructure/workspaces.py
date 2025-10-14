@@ -26,6 +26,10 @@ class WorkspaceRepository(Protocol):
 
     def list_policy(self, ws_id: str) -> list[dict]: ...
 
+    def add_document(self, ws_id: str, record: dict) -> None: ...
+
+    def list_documents(self, ws_id: str) -> list[dict]: ...
+
     def get_policy_snapshot(self, ws_id: str) -> dict[str, object]: ...
 
     def get_fact_snapshot(self, ws_id: str) -> dict[str, object]: ...
@@ -71,11 +75,13 @@ class InMemoryWorkspaceRepository:
         if workspace is None:
             return None
         jobs = [asdict(job) for job in workspace.jobs]
+        documents = list(workspace.documents)
         return {
             "ws_id": workspace.ws_id,
             "month": workspace.month,
             "jobs": jobs,
             "files": jobs,
+            "documents": documents,
         }
 
     def register_upload(self, ws_id: str, job_id: str, filename: str) -> None:
@@ -105,6 +111,14 @@ class InMemoryWorkspaceRepository:
     def list_policy(self, ws_id: str) -> list[dict]:
         workspace = self._workspaces.get(ws_id)
         return list(workspace.policy) if workspace else []
+
+    def add_document(self, ws_id: str, record: dict) -> None:
+        workspace = self._ensure_workspace(ws_id)
+        workspace.documents.append(record)
+
+    def list_documents(self, ws_id: str) -> list[dict]:
+        workspace = self._workspaces.get(ws_id)
+        return list(workspace.documents) if workspace else []
 
     def get_policy_snapshot(self, ws_id: str) -> dict[str, object]:
         workspace = self._ensure_workspace(ws_id)

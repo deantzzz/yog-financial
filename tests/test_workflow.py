@@ -1,15 +1,17 @@
 import csv
+import json
 import os
 import sys
 from decimal import Decimal
 from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from backend.application import reset_workspace_state
+from backend.application import get_workspace_service, reset_workspace_state
 
 
 @pytest.fixture(autouse=True)
@@ -139,6 +141,36 @@ def test_end_to_end_workflow(client, tmp_path):
     response = client.get(f"/api/workspaces/{ws_id}/results", params={"period": "2025-01"})
     items = response.json()["items"]
     assert items and items[0]["employee_name_norm"] == "张三"
+
+
+def test_unstructured_document_pipeline(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-05"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    image_path = tmp_path / "receipt.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    with image_path.open("rb") as fp:
+        upload = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("receipt.png", fp, "image/png")},
+        )
+    assert upload.status_code == 200
+
+    service = get_workspace_service()
+    documents = service.list_documents(ws_id)
+    assert len(documents) == 1
+    document = documents[0]
+    assert document["source_file"] == "receipt.png"
+    assert document["schema"] == "image_document"
+    assert document["requires_ocr"] is True
+    assert document["ocr_metadata"]["provider"] == "noop"
+
+    ocr_json = tmp_path / ws_id / "ocr" / "receipt.json"
+    assert ocr_json.exists()
+    payload = json.loads(ocr_json.read_text(encoding="utf-8"))
+    assert payload["schema"] == "image_document"
 
 
 def test_excel_templates_pipeline(client, tmp_path):
