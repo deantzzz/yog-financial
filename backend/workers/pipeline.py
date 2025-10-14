@@ -14,7 +14,7 @@ try:  # pragma: no cover - import-time fallback
 except ModuleNotFoundError:  # pragma: no cover - executed in minimal envs
     from backend.utils import simple_dataframe as pd
 
-from backend.core import state
+from backend.application import get_workspace_service
 from backend.core import hashing, name_normalize
 from backend.core.csvio import write_records_to_csv
 from backend.core.schema import FactRecord, PolicySnapshot
@@ -128,17 +128,17 @@ class PipelineWorker:
 
     async def enqueue(self, payload: PipelineRequest) -> PipelineJob:
         async with self._lock:
-            store = state.StateStore.instance()
-            job_id = store.next_job_id()
-            store.register_upload(payload.ws_id, job_id, payload.filename)
-            store.update_job_status(payload.ws_id, job_id, "processing")
+            service = get_workspace_service()
+            job_id = service.next_job_id()
+            service.register_upload(payload.ws_id, job_id, payload.filename)
+            service.update_job_status(payload.ws_id, job_id, "processing")
             try:
                 await asyncio.to_thread(self._process_file, payload, job_id)
             except Exception as exc:  # pragma: no cover - defensive branch
-                store.update_job_status(payload.ws_id, job_id, "failed", error=str(exc))
+                service.update_job_status(payload.ws_id, job_id, "failed", error=str(exc))
                 raise
             else:
-                store.update_job_status(payload.ws_id, job_id, "completed")
+                service.update_job_status(payload.ws_id, job_id, "completed")
             return PipelineJob(job_id=job_id, status="completed")
 
     def _process_file(self, payload: PipelineRequest, job_id: str) -> None:
@@ -304,7 +304,8 @@ class PipelineWorker:
             "confidence": Decimal("0"),
             "raw_text_hash": hashing.sha256_text(payload.filename),
         }
-        state.StateStore.instance().add_fact(payload.ws_id, record)
+        service = get_workspace_service()
+        service.add_fact(payload.ws_id, record)
 
     def _ingest_fact_rows(self, payload: PipelineRequest, job_id: str, dataframe: pd.DataFrame) -> None:
         required = {"employee_name", "period_month", "metric_code", "metric_value"}
@@ -313,7 +314,7 @@ class PipelineWorker:
             raise ValueError(f"事实数据缺少字段: {', '.join(missing)}")
 
         sha256 = hashing.sha256_file(payload.file_path)
-        store = state.StateStore.instance()
+        service = get_workspace_service()
         for row in dataframe.to_dict(orient="records"):
             employee_name = str(row.get("employee_name") or "")
             if not employee_name:
@@ -366,7 +367,7 @@ class PipelineWorker:
                 ),
                 tags_json=tags,
             )
-            store.add_fact(payload.ws_id, fact.model_dump())
+            service.add_fact(payload.ws_id, fact.model_dump())
 
     def _ingest_policy_rows(self, payload: PipelineRequest, job_id: str, dataframe: pd.DataFrame) -> None:
         normalised_columns = {
@@ -379,7 +380,7 @@ class PipelineWorker:
             raise ValueError(f"口径数据缺少字段: {', '.join(missing)}")
 
         sha256 = hashing.sha256_file(payload.file_path)
-        store = state.StateStore.instance()
+        service = get_workspace_service()
         rows = dataframe.to_dict(orient="records")
 
         def get_value(row: dict[str, Any], key: str) -> Any:
@@ -447,7 +448,7 @@ class PipelineWorker:
             payload_dict["ingest_job_id"] = job_id
 
             snapshot = PolicySnapshot(**payload_dict)
-            store.add_policy(payload.ws_id, snapshot.model_dump())
+            service.add_policy(payload.ws_id, snapshot.model_dump())
 
 
 _worker: PipelineWorker | None = None

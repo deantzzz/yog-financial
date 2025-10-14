@@ -1,136 +1,22 @@
 'use client';
 
 import { useState } from 'react';
-import { apiFetch } from '../../lib/api';
 
-type PolicyApiRow = {
-  employee_name_norm?: string;
-  period_month?: string;
-  mode?: string;
-  base_amount?: unknown;
-  base_rate?: unknown;
-  ot_weekday_rate?: unknown;
-  ot_weekend_rate?: unknown;
-  ot_weekday_multiplier?: unknown;
-  ot_weekend_multiplier?: unknown;
-  allowances_json?: unknown;
-  deductions_json?: unknown;
-  social_security_json?: unknown;
-  tax_json?: unknown;
-  valid_from?: unknown;
-  valid_to?: unknown;
-  source_file?: unknown;
-  source_sheet?: unknown;
-  snapshot_hash?: unknown;
-  raw_snapshot?: unknown;
-};
-
-type PolicyResponse = {
-  items?: PolicyApiRow[];
-};
-
-type PolicyRow = {
-  employee_name_norm: string;
-  period_month: string;
-  mode: 'SALARIED' | 'HOURLY';
-  base_amount: number | null;
-  base_rate: number | null;
-  ot_weekday_rate: number | null;
-  ot_weekend_rate: number | null;
-  ot_weekday_multiplier: number | null;
-  ot_weekend_multiplier: number | null;
-  allowances_json: Record<string, unknown>;
-  deductions_json: Record<string, unknown>;
-  social_security_json: Record<string, unknown>;
-  tax_json: Record<string, unknown>;
-  valid_from: string | null;
-  valid_to: string | null;
-  source_file: string | null;
-  source_sheet: string | null;
-  snapshot_hash: string | null;
-  raw_snapshot: Record<string, unknown>;
-};
-
-const NUMBER_PATTERN = /^[-+]?\d+(?:\.\d+)?$/;
+import { PolicyRow, fetchPolicySnapshots } from '../../features/workspaces/services';
 
 function parseNumeric(value: unknown): number | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : null;
   }
   if (typeof value === 'string') {
     const normalised = value.replace(/,/g, '').trim();
-    if (!normalised || !NUMBER_PATTERN.test(normalised)) {
+    if (!normalised) {
       return null;
     }
     const parsed = Number(normalised);
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
-}
-
-function normaliseNested(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => normaliseNested(item));
-  }
-  if (value && typeof value === 'object') {
-    return Object.entries(value as Record<string, unknown>).reduce<Record<string, unknown>>((acc, [key, entry]) => {
-      acc[key] = normaliseNested(entry);
-      return acc;
-    }, {});
-  }
-  const numeric = parseNumeric(value);
-  return numeric ?? value;
-}
-
-function toRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-  return normaliseNested(value) as Record<string, unknown>;
-}
-
-function toNullableString(value: unknown): string | null {
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed ? trimmed : null;
-  }
-  return null;
-}
-
-function normalisePolicyRow(apiRow: PolicyApiRow): PolicyRow | null {
-  const employee = toNullableString(apiRow.employee_name_norm) ?? '';
-  const period = toNullableString(apiRow.period_month) ?? '';
-  if (!employee || !period) {
-    return null;
-  }
-
-  const modeRaw = toNullableString(apiRow.mode)?.toUpperCase() ?? 'SALARIED';
-  const mode: 'SALARIED' | 'HOURLY' = modeRaw === 'HOURLY' ? 'HOURLY' : 'SALARIED';
-
-  return {
-    employee_name_norm: employee,
-    period_month: period,
-    mode,
-    base_amount: parseNumeric(apiRow.base_amount),
-    base_rate: parseNumeric(apiRow.base_rate),
-    ot_weekday_rate: parseNumeric(apiRow.ot_weekday_rate),
-    ot_weekend_rate: parseNumeric(apiRow.ot_weekend_rate),
-    ot_weekday_multiplier: parseNumeric(apiRow.ot_weekday_multiplier),
-    ot_weekend_multiplier: parseNumeric(apiRow.ot_weekend_multiplier),
-    allowances_json: toRecord(apiRow.allowances_json),
-    deductions_json: toRecord(apiRow.deductions_json),
-    social_security_json: toRecord(apiRow.social_security_json),
-    tax_json: toRecord(apiRow.tax_json),
-    valid_from: toNullableString(apiRow.valid_from),
-    valid_to: toNullableString(apiRow.valid_to),
-    source_file: toNullableString(apiRow.source_file),
-    source_sheet: toNullableString(apiRow.source_sheet),
-    snapshot_hash: toNullableString(apiRow.snapshot_hash),
-    raw_snapshot: toRecord(apiRow.raw_snapshot),
-  };
 }
 
 function formatCurrency(value: number | null, suffix = ''): string {
@@ -177,12 +63,9 @@ export default function PolicyPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<PolicyResponse>(`/api/workspaces/${workspace}/policy`);
-      const normalised = (data.items ?? [])
-        .map((item) => normalisePolicyRow(item))
-        .filter((item): item is PolicyRow => item !== null);
-      setPolicies(normalised);
-      if (normalised.length === 0) {
+      const rows = await fetchPolicySnapshots(workspace);
+      setPolicies(rows);
+      if (rows.length === 0) {
         setError('当前工作区尚无口径快照，请先上传工资口径表或名册');
       }
     } catch (err) {

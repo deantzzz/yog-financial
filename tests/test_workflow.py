@@ -9,14 +9,14 @@ from openpyxl import Workbook
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from backend.core import state
+from backend.application import reset_workspace_state
 
 
 @pytest.fixture(autouse=True)
 def reset_state():
-    state.StateStore.reset()
+    reset_workspace_state()
     yield
-    state.StateStore.reset()
+    reset_workspace_state()
 
 
 @pytest.fixture()
