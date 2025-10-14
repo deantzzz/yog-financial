@@ -228,11 +228,11 @@ class PipelineWorker:
             ]
 
             if heuristic_facts:
-                self._ingest_fact_records(payload, job_id, heuristic_facts, "heuristic")
+                self._ingest_fact_records(payload, job_id, heuristic_facts, "heuristic_fact")
                 handled_fact = True
 
             if not handled_policy and heuristic.policies:
-                self._ingest_policy_records(payload, job_id, heuristic.policies, "heuristic")
+                self._ingest_policy_records(payload, job_id, heuristic.policies, "heuristic_policy")
                 handled_policy = True
 
             if not handled_fact and not handled_policy:
@@ -334,6 +334,13 @@ class PipelineWorker:
         root = ensure_workspace_root(payload.ws_id)
         target = root / "csv" / f"{Path(payload.filename).stem}_{schema}.csv"
         write_records_to_csv(target, records)
+        service = get_workspace_service()
+        service.register_requirement_for_schema(
+            payload.ws_id,
+            schema,
+            filename=payload.filename,
+            job_id=job_id,
+        )
 
     def _ingest_policy_records(
         self,
@@ -350,6 +357,13 @@ class PipelineWorker:
         root = ensure_workspace_root(payload.ws_id)
         target = root / "policy" / f"{Path(payload.filename).stem}_{schema}.csv"
         write_records_to_csv(target, records)
+        service = get_workspace_service()
+        service.register_requirement_for_schema(
+            payload.ws_id,
+            schema,
+            filename=payload.filename,
+            job_id=job_id,
+        )
 
     def _record_unparsed(self, payload: PipelineRequest, job_id: str) -> None:
         record = {

@@ -26,3 +26,5 @@ class WorkspaceState:
     policy: list[dict[str, Any]] = field(default_factory=list)
     results: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     documents: list[dict[str, Any]] = field(default_factory=list)
+    requirements: dict[str, dict[str, Any]] = field(default_factory=dict)
+    checkpoints: dict[str, str] = field(default_factory=dict)

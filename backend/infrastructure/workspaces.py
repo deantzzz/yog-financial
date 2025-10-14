@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import datetime, timezone
 from typing import Protocol
 
 from backend.domain import JobRecord, WorkspaceState
@@ -39,6 +40,22 @@ class WorkspaceRepository(Protocol):
     def list_results(self, ws_id: str, period: str | None = None) -> list[dict]: ...
 
     def next_job_id(self) -> str: ...
+
+    def list_workspaces(self) -> list[dict[str, object]]: ...
+
+    def mark_requirement(
+        self,
+        ws_id: str,
+        requirement_id: str,
+        *,
+        filename: str,
+        job_id: str,
+        schema: str,
+    ) -> None: ...
+
+    def get_requirements(self, ws_id: str) -> dict[str, dict[str, object]]: ...
+
+    def update_checkpoint(self, ws_id: str, step_id: str, status: str) -> None: ...
 
     def reset(self) -> None: ...
 
@@ -82,6 +99,8 @@ class InMemoryWorkspaceRepository:
             "jobs": jobs,
             "files": jobs,
             "documents": documents,
+            "requirements": dict(workspace.requirements),
+            "checkpoints": dict(workspace.checkpoints),
         }
 
     def register_upload(self, ws_id: str, job_id: str, filename: str) -> None:
@@ -146,6 +165,51 @@ class InMemoryWorkspaceRepository:
     def next_job_id(self) -> str:
         self._job_counter += 1
         return f"job-{self._job_counter:05d}"
+
+    def list_workspaces(self) -> list[dict[str, object]]:
+        summaries: list[dict[str, object]] = []
+        for workspace in self._workspaces.values():
+            summaries.append(
+                {
+                    "ws_id": workspace.ws_id,
+                    "month": workspace.month,
+                    "jobs": len(workspace.jobs),
+                    "facts": len(workspace.facts),
+                    "policy": len(workspace.policy),
+                    "results": sum(len(rows) for rows in workspace.results.values()),
+                }
+            )
+        summaries.sort(key=lambda item: item["month"], reverse=True)
+        return summaries
+
+    def mark_requirement(
+        self,
+        ws_id: str,
+        requirement_id: str,
+        *,
+        filename: str,
+        job_id: str,
+        schema: str,
+    ) -> None:
+        workspace = self._ensure_workspace(ws_id)
+        workspace.requirements[requirement_id] = {
+            "status": "completed",
+            "filename": filename,
+            "job_id": job_id,
+            "schema": schema,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def get_requirements(self, ws_id: str) -> dict[str, dict[str, object]]:
+        workspace = self._ensure_workspace(ws_id)
+        return dict(workspace.requirements)
+
+    def update_checkpoint(self, ws_id: str, step_id: str, status: str) -> None:
+        workspace = self._ensure_workspace(ws_id)
+        if status:
+            workspace.checkpoints[step_id] = status
+        elif step_id in workspace.checkpoints:
+            del workspace.checkpoints[step_id]
 
     def reset(self) -> None:
         self._workspaces.clear()

@@ -13,6 +13,53 @@ export type WorkspaceOverview = {
   files: WorkspaceJob[];
 };
 
+export type WorkspaceSummary = {
+  ws_id: string;
+  month: string;
+  jobs: number;
+  facts: number;
+  policy: number;
+  results: number;
+};
+
+export type RequirementStatus = {
+  id: string;
+  label: string;
+  description: string;
+  optional: boolean;
+  status: 'pending' | 'completed';
+  filename?: string | null;
+  job_id?: string | null;
+  schema?: string | null;
+  updated_at?: string | null;
+  auto_inferred?: boolean;
+};
+
+export type StepStatus = 'pending' | 'in_progress' | 'blocked' | 'completed';
+
+export type WorkflowStep = {
+  id: string;
+  label: string;
+  description: string;
+  status: StepStatus;
+  requirements?: RequirementStatus[];
+  meta?: Record<string, unknown>;
+};
+
+export type WorkspaceProgress = {
+  ws_id: string;
+  month: string;
+  overall: number;
+  steps: WorkflowStep[];
+  next_step: string | null;
+  summary: {
+    jobs: { total: number; pending: number; failed: number; by_status: Record<string, number> };
+    facts: { count: number; low_confidence: number };
+    policy: { count: number };
+    results: { count: number; periods: string[] };
+  };
+};
+
 export async function fetchWorkspaceOverview(wsId: string): Promise<WorkspaceOverview> {
   const data = await apiFetch<{ ws_id?: string; month?: string; files?: WorkspaceJob[] }>(`/api/workspaces/${wsId}/files`);
   return {
@@ -20,6 +67,46 @@ export async function fetchWorkspaceOverview(wsId: string): Promise<WorkspaceOve
     month: data.month ?? wsId,
     files: Array.isArray(data.files) ? data.files : []
   };
+}
+
+export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
+  const data = await apiFetch<{ items?: WorkspaceSummary[] }>(`/api/workspaces`);
+  return Array.isArray(data.items)
+    ? data.items.map((item) => ({
+        ws_id: item.ws_id,
+        month: item.month,
+        jobs: Number(item.jobs ?? 0),
+        facts: Number(item.facts ?? 0),
+        policy: Number(item.policy ?? 0),
+        results: Number(item.results ?? 0)
+      }))
+    : [];
+}
+
+export async function createWorkspace(month: string): Promise<{ ws_id: string }> {
+  const data = await apiFetch<{ ws_id: string }>(`/api/workspaces`, {
+    method: 'POST',
+    body: JSON.stringify({ month })
+  });
+  return data;
+}
+
+export async function fetchWorkspaceProgress(wsId: string): Promise<WorkspaceProgress> {
+  return await apiFetch<WorkspaceProgress>(`/api/workspaces/${wsId}/progress`);
+}
+
+export async function updateWorkspaceCheckpoint(
+  wsId: string,
+  step: string,
+  status: 'pending' | 'completed'
+): Promise<{ step: string; status: string; progress: WorkspaceProgress }> {
+  return await apiFetch<{ step: string; status: string; progress: WorkspaceProgress }>(
+    `/api/workspaces/${wsId}/progress/checkpoints`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ step, status })
+    }
+  );
 }
 
 export async function uploadWorkspaceFile(wsId: string, file: File): Promise<{ job_id: string; status: string }> {

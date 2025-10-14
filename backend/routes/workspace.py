@@ -8,6 +8,13 @@ from backend.core.workspaces import ensure_workspace_root
 router = APIRouter(prefix="/workspaces", tags=["workspace"])
 
 
+@router.get("")
+async def list_workspaces() -> dict:
+    service = get_workspace_service()
+    items = service.list_workspaces()
+    return {"items": items}
+
+
 @router.post("")
 async def create_workspace(payload: dict) -> dict:
     month = payload.get("month")
@@ -26,6 +33,31 @@ async def list_workspace_files(ws_id: str) -> dict:
     if not data:
         raise HTTPException(status_code=404, detail="workspace not found")
     return data
+
+
+@router.get("/{ws_id}/progress")
+async def get_workspace_progress(ws_id: str) -> dict:
+    service = get_workspace_service()
+    progress = service.get_workspace_progress(ws_id)
+    if not progress:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    return progress
+
+
+@router.post("/{ws_id}/progress/checkpoints")
+async def update_workspace_checkpoint(ws_id: str, payload: dict) -> dict:
+    step = payload.get("step")
+    status = str(payload.get("status") or "completed")
+    if not step:
+        raise HTTPException(status_code=400, detail="step is required")
+    if status not in {"pending", "completed"}:
+        raise HTTPException(status_code=400, detail="status must be pending or completed")
+    service = get_workspace_service()
+    if not service.get_workspace_overview(ws_id):
+        raise HTTPException(status_code=404, detail="workspace not found")
+    service.update_checkpoint(ws_id, step, status)
+    progress = service.get_workspace_progress(ws_id)
+    return {"step": step, "status": status, "progress": progress}
 
 
 @router.get("/{ws_id}/fact")
