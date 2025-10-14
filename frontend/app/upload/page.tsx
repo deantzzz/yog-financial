@@ -1,28 +1,28 @@
 'use client';
 
 import { useState } from 'react';
-import { API_BASE_URL } from '../../lib/api';
 
-type WorkspaceFile = {
-  filename: string;
-  status: string;
-  error?: string;
-};
+import {
+  WorkspaceJob,
+  fetchWorkspaceOverview,
+  uploadWorkspaceFile
+} from '../../features/workspaces/services';
 
 export default function UploadPage() {
   const [workspace, setWorkspace] = useState('2025-01');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [files, setFiles] = useState<WorkspaceJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const refreshFiles = async (ws: string) => {
-    const response = await fetch(`${API_BASE_URL}/api/workspaces/${ws}/files`);
-    if (!response.ok) {
-      throw new Error('获取文件列表失败');
+    try {
+      const overview = await fetchWorkspaceOverview(ws);
+      setFiles(overview.files ?? []);
+      setMessage(null);
+    } catch (error) {
+      setMessage(error instanceof Error ? `加载失败：${error.message}` : '加载失败');
     }
-    const data = await response.json();
-    setFiles(data.files ?? []);
   };
 
   const handleUpload = async () => {
@@ -34,16 +34,7 @@ export default function UploadPage() {
     setMessage(null);
 
     try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspace}/upload`, {
-        method: 'POST',
-        body: formData
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text);
-      }
+      await uploadWorkspaceFile(workspace, selectedFile);
       setMessage('上传成功，解析任务已排队');
       setSelectedFile(null);
       await refreshFiles(workspace);
@@ -118,10 +109,12 @@ export default function UploadPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {files.map((file) => (
-                <tr key={file.filename}>
-                  <td className="px-3 py-2">{file.filename}</td>
+                <tr key={file.job_id ?? file.filename}>
+                  <td className="px-3 py-2">{file.filename ?? '-'}</td>
                   <td className="px-3 py-2">
-                    <span className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">{file.status}</span>
+                    <span className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                      {file.status ?? '-'}
+                    </span>
                   </td>
                   <td className="px-3 py-2 text-slate-500">{file.error ?? '-'}</td>
                 </tr>

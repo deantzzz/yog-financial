@@ -1,20 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { apiFetch } from '../../lib/api';
 
-type FactRecord = {
-  employee_name: string;
-  metric_code: string;
-  metric_value: number | string;
-  unit: string;
-  source_file: string;
-  confidence: number | string | null;
-};
-
-type FactResponse = {
-  items: FactRecord[];
-};
+import { FactRecord, fetchFactRecords } from '../../features/workspaces/services';
 
 export default function FactsPage() {
   const [workspace, setWorkspace] = useState('2025-01');
@@ -28,34 +16,11 @@ export default function FactsPage() {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams();
-      if (name) params.append('employee_name', name);
-      if (metric) params.append('metric_code', metric);
-      const data = await apiFetch<FactResponse>(`/api/workspaces/${workspace}/fact?${params.toString()}`);
-      const normalized = (data.items ?? []).map((item) => {
-        const metricValueRaw =
-          typeof item.metric_value === 'string' ? Number(item.metric_value) : item.metric_value;
-        const metricValue = Number.isNaN(metricValueRaw as number)
-          ? item.metric_value
-          : metricValueRaw;
-
-        let confidenceValue: number | null;
-        if (item.confidence === null || item.confidence === undefined) {
-          confidenceValue = null;
-        } else if (typeof item.confidence === 'number') {
-          confidenceValue = Number.isNaN(item.confidence) ? null : item.confidence;
-        } else {
-          const parsed = Number(item.confidence);
-          confidenceValue = Number.isNaN(parsed) ? null : parsed;
-        }
-
-        return {
-          ...item,
-          metric_value: metricValue,
-          confidence: confidenceValue,
-        };
+      const data = await fetchFactRecords(workspace, {
+        employeeName: name || undefined,
+        metricCode: metric || undefined
       });
-      setRecords(normalized);
+      setRecords(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : '查询失败');
     } finally {
@@ -115,7 +80,7 @@ export default function FactsPage() {
               </tr>
             ) : (
               records.map((record, index) => {
-                const confidenceValue = typeof record.confidence === 'number' ? record.confidence : null;
+                const confidenceValue = record.confidence;
                 const rowConfidence = confidenceValue ?? 0;
                 return (
                   <tr key={`${record.employee_name}-${index}`} className={rowConfidence < 0.7 ? 'bg-orange-50' : ''}>

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 import yaml
-from backend.core import state
+from backend.application import get_workspace_service
 from backend.core.name_normalize import normalize
 from backend.core.schema import FactRecord, PayrollResultModel, PolicySnapshot
 
@@ -93,9 +93,9 @@ def _apply_tax(gross: Decimal, personal_ss: Decimal) -> Decimal:
 
 
 def calculate_period(ws_id: str, period: str, employees: list[str] | None = None) -> list[PayrollResult]:
-    store = state.StateStore.instance()
-    fact_rows = [FactRecord(**row) for row in store.list_facts(ws_id) if row.get("period_month") == period]
-    policy_rows = [PolicySnapshot(**row) for row in store.list_policy(ws_id) if row.get("period_month") == period]
+    service = get_workspace_service()
+    fact_rows = [FactRecord(**row) for row in service.get_fact_records_for_period(ws_id, period)]
+    policy_rows = [PolicySnapshot(**row) for row in service.get_policy_records_for_period(ws_id, period)]
 
     selected = {normalize(name) for name in employees} if employees else None
 

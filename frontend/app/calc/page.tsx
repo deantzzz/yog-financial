@@ -1,27 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { apiFetch } from '../../lib/api';
 
-type ResultRow = {
-  employee_name_norm: string;
-  period_month: string;
-  gross_pay: number;
-  net_pay: number;
-  base_pay: number;
-  ot_pay: number;
-};
-
-type RawResultRow = Omit<ResultRow, 'gross_pay' | 'net_pay' | 'base_pay' | 'ot_pay'> & {
-  gross_pay: number | string;
-  net_pay: number | string;
-  base_pay: number | string;
-  ot_pay: number | string;
-};
-
-type ResultsResponse = {
-  items: RawResultRow[];
-};
+import {
+  PayrollResult,
+  fetchPayrollResults,
+  triggerPayrollCalculation
+} from '../../features/workspaces/services';
 
 export default function CalcPage() {
   const [workspace, setWorkspace] = useState('2025-01');
@@ -29,19 +14,18 @@ export default function CalcPage() {
   const [employees, setEmployees] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [results, setResults] = useState<ResultRow[]>([]);
+  const [results, setResults] = useState<PayrollResult[]>([]);
 
   const handleCalc = async () => {
     setLoading(true);
     setMessage(null);
     try {
-      const payload = {
+      await triggerPayrollCalculation(workspace, {
         period,
-        selected: employees.split(',').map((item) => item.trim()).filter(Boolean)
-      };
-      await apiFetch(`/api/workspaces/${workspace}/calc`, {
-        method: 'POST',
-        body: JSON.stringify(payload)
+        selected: employees
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
       });
       setMessage('计算任务已触发，可稍后刷新结果列表。');
     } catch (error) {
@@ -55,25 +39,9 @@ export default function CalcPage() {
     setLoading(true);
     setMessage(null);
     try {
-      const data = await apiFetch<ResultsResponse>(`/api/workspaces/${workspace}/results?period=${period}`);
-      const toNumber = (value: number | string) => {
-        if (typeof value === 'number') {
-          return value;
-        }
-        const parsed = Number(value);
-        return Number.isFinite(parsed) ? parsed : 0;
-      };
-
-      const normalized = (data.items ?? []).map((row) => ({
-        ...row,
-        gross_pay: toNumber(row.gross_pay),
-        net_pay: toNumber(row.net_pay),
-        base_pay: toNumber(row.base_pay),
-        ot_pay: toNumber(row.ot_pay)
-      }));
-
-      setResults(normalized);
-      if (!data.items || data.items.length === 0) {
+      const data = await fetchPayrollResults(workspace, period);
+      setResults(data);
+      if (data.length === 0) {
         setMessage('暂无结果，请确认任务是否完成。');
       }
     } catch (error) {
