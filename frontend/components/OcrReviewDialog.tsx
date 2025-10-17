@@ -10,7 +10,7 @@ import { API_BASE_URL } from '../lib/api';
 import { WorkspaceDocument } from '../features/workspaces/services';
 
 type GridRow = {
-  id: number;
+  id: string;
 } & Record<string, string>;
 
 type Props = {
@@ -74,7 +74,7 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
 
   const rows = useMemo<GridRow[]>(() => {
     return tableData.map((row, rowIndex) => {
-      const record: GridRow = { id: rowIndex };
+      const record: GridRow = { id: String(rowIndex) };
       for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
         record[`col-${columnIndex}`] = row[columnIndex] ?? '';
       }
@@ -189,7 +189,6 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
                   rows={rows}
                   rowKeyGetter={(row) => row.id}
                   style={{ blockSize: '100%' }}
-                  defaultColumnOptions={{ editorOptions: { editOnClick: true } }}
                   onRowsChange={handleRowsChange}
                 />
               </div>
