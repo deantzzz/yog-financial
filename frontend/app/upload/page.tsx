@@ -6,14 +6,14 @@ import {
   WorkspaceJob,
   WorkspaceDocument,
   fetchWorkspaceOverview,
-  uploadWorkspaceFile,
+  uploadWorkspaceFiles,
   updateWorkspaceDocument
 } from '../../features/workspaces/services';
 import OcrReviewDialog from '../../components/OcrReviewDialog';
 
 export default function UploadPage() {
   const [workspace, setWorkspace] = useState('2025-01');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [files, setFiles] = useState<WorkspaceJob[]>([]);
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
   const [loading, setLoading] = useState(false);
@@ -21,6 +21,7 @@ export default function UploadPage() {
   const [selectedDocument, setSelectedDocument] = useState<WorkspaceDocument | null>(null);
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   const refreshFiles = async (ws: string) => {
     try {
@@ -34,7 +35,7 @@ export default function UploadPage() {
   };
 
   const handleUpload = async () => {
-    if (!selectedFile) {
+    if (selectedFiles.length === 0) {
       setMessage('请选择需要上传的文件');
       return;
     }
@@ -42,9 +43,11 @@ export default function UploadPage() {
     setMessage(null);
 
     try {
-      await uploadWorkspaceFile(workspace, selectedFile);
-      setMessage('上传成功，解析任务已排队');
-      setSelectedFile(null);
+      const jobs = await uploadWorkspaceFiles(workspace, selectedFiles);
+      const count = jobs.length || selectedFiles.length;
+      setMessage(count > 1 ? `上传成功，${count} 个文件的解析任务已排队` : '上传成功，解析任务已排队');
+      setSelectedFiles([]);
+      setFileInputKey((key) => key + 1);
       await refreshFiles(workspace);
     } catch (error) {
       if (error instanceof Error) {
@@ -106,10 +109,28 @@ export default function UploadPage() {
           <label className="flex flex-col text-sm">
             选择文件
             <input
+              key={fileInputKey}
               type="file"
-              onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+              multiple
+              onChange={(event) => {
+                const fileList = event.target.files;
+                if (!fileList) {
+                  setSelectedFiles([]);
+                  return;
+                }
+                setSelectedFiles(Array.from(fileList));
+              }}
               className="mt-1 text-sm"
             />
+            {selectedFiles.length > 0 && (
+              <ul className="mt-2 space-y-1 text-xs text-slate-500">
+                {selectedFiles.map((file, index) => (
+                  <li key={`${file.name}-${index}`} className="truncate">
+                    {file.name}
+                  </li>
+                ))}
+              </ul>
+            )}
           </label>
         </div>
         <button
