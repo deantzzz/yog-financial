@@ -68,7 +68,11 @@ def parse(
     sheet_name: str | None = None,
     period: str | None = None,
 ) -> PolicyParseResult:
-    dataframe = pd.read_excel(path, sheet_name=sheet_name)
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        dataframe = pd.read_csv(path)
+    else:
+        dataframe = pd.read_excel(path, sheet_name=sheet_name)
     dataframe = _normalise_columns(dataframe)
 
     name_column = _find_column(dataframe, ["姓名", "员工", "employee"])

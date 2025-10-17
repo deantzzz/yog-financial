@@ -13,6 +13,53 @@ export type WorkspaceOverview = {
   files: WorkspaceJob[];
 };
 
+export type WorkspaceSummary = {
+  ws_id: string;
+  month: string;
+  jobs: number;
+  facts: number;
+  policy: number;
+  results: number;
+};
+
+export type RequirementStatus = {
+  id: string;
+  label: string;
+  description: string;
+  optional: boolean;
+  status: 'pending' | 'completed';
+  filename?: string | null;
+  job_id?: string | null;
+  schema?: string | null;
+  updated_at?: string | null;
+  auto_inferred?: boolean;
+};
+
+export type StepStatus = 'pending' | 'in_progress' | 'blocked' | 'completed';
+
+export type WorkflowStep = {
+  id: string;
+  label: string;
+  description: string;
+  status: StepStatus;
+  requirements?: RequirementStatus[];
+  meta?: Record<string, unknown>;
+};
+
+export type WorkspaceProgress = {
+  ws_id: string;
+  month: string;
+  overall: number;
+  steps: WorkflowStep[];
+  next_step: string | null;
+  summary: {
+    jobs: { total: number; pending: number; failed: number; by_status: Record<string, number> };
+    facts: { count: number; low_confidence: number };
+    policy: { count: number };
+    results: { count: number; periods: string[] };
+  };
+};
+
 export async function fetchWorkspaceOverview(wsId: string): Promise<WorkspaceOverview> {
   const data = await apiFetch<{ ws_id?: string; month?: string; files?: WorkspaceJob[] }>(`/api/workspaces/${wsId}/files`);
   return {
@@ -20,6 +67,46 @@ export async function fetchWorkspaceOverview(wsId: string): Promise<WorkspaceOve
     month: data.month ?? wsId,
     files: Array.isArray(data.files) ? data.files : []
   };
+}
+
+export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
+  const data = await apiFetch<{ items?: WorkspaceSummary[] }>(`/api/workspaces`);
+  return Array.isArray(data.items)
+    ? data.items.map((item) => ({
+        ws_id: item.ws_id,
+        month: item.month,
+        jobs: Number(item.jobs ?? 0),
+        facts: Number(item.facts ?? 0),
+        policy: Number(item.policy ?? 0),
+        results: Number(item.results ?? 0)
+      }))
+    : [];
+}
+
+export async function createWorkspace(month: string): Promise<{ ws_id: string }> {
+  const data = await apiFetch<{ ws_id: string }>(`/api/workspaces`, {
+    method: 'POST',
+    body: JSON.stringify({ month })
+  });
+  return data;
+}
+
+export async function fetchWorkspaceProgress(wsId: string): Promise<WorkspaceProgress> {
+  return await apiFetch<WorkspaceProgress>(`/api/workspaces/${wsId}/progress`);
+}
+
+export async function updateWorkspaceCheckpoint(
+  wsId: string,
+  step: string,
+  status: 'pending' | 'completed'
+): Promise<{ step: string; status: string; progress: WorkspaceProgress }> {
+  return await apiFetch<{ step: string; status: string; progress: WorkspaceProgress }>(
+    `/api/workspaces/${wsId}/progress/checkpoints`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ step, status })
+    }
+  );
 }
 
 export async function uploadWorkspaceFile(wsId: string, file: File): Promise<{ job_id: string; status: string }> {
@@ -228,32 +315,25 @@ export type PayrollResult = {
   ot_pay: number;
   allowances_sum?: number;
   deductions_sum?: number;
+  social_security_personal?: number;
+  tax?: number;
+  snapshot_hash?: string | null;
+  source_files?: string[];
 };
 
-export async function triggerPayrollCalculation(
-  wsId: string,
-  payload: { period: string; selected?: string[] }
-): Promise<void> {
-  await apiFetch(`/api/workspaces/${wsId}/calc`, {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  });
-}
+const toNumber = (value: unknown): number => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
 
-export async function fetchPayrollResults(wsId: string, period: string): Promise<PayrollResult[]> {
-  const data = await apiFetch<{ items?: Array<Record<string, unknown>> }>(`/api/workspaces/${wsId}/results?period=${encodeURIComponent(period)}`);
-  const toNumber = (value: unknown): number => {
-    if (typeof value === 'number') {
-      return Number.isFinite(value) ? value : 0;
-    }
-    if (typeof value === 'string') {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : 0;
-    }
-    return 0;
-  };
-
-  return (data.items ?? []).map((item) => ({
+function parsePayrollResults(items: Array<Record<string, unknown>>): PayrollResult[] {
+  return items.map((item) => ({
     employee_name_norm: String(item['employee_name_norm'] ?? ''),
     period_month: String(item['period_month'] ?? ''),
     gross_pay: toNumber(item['gross_pay']),
@@ -261,6 +341,37 @@ export async function fetchPayrollResults(wsId: string, period: string): Promise
     base_pay: toNumber(item['base_pay']),
     ot_pay: toNumber(item['ot_pay']),
     allowances_sum: toNumber(item['allowances_sum']),
-    deductions_sum: toNumber(item['deductions_sum'])
+    deductions_sum: toNumber(item['deductions_sum']),
+    social_security_personal: toNumber(item['social_security_personal']),
+    tax: toNumber(item['tax']),
+    snapshot_hash: (item['snapshot_hash'] as string | null | undefined) ?? null,
+    source_files: Array.isArray(item['source_files'])
+      ? item['source_files'].map((value) => String(value))
+      : undefined
   }));
+}
+
+export async function triggerPayrollCalculation(
+  wsId: string,
+  payload: { period: string; selected?: string[] }
+): Promise<{ period: string; items: PayrollResult[] }> {
+  const data = await apiFetch<{ period?: string; items?: Array<Record<string, unknown>> }>(
+    `/api/workspaces/${wsId}/calc`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }
+  );
+
+  const period = typeof data.period === 'string' && data.period ? data.period : payload.period;
+  const items = parsePayrollResults(Array.isArray(data.items) ? data.items : []);
+  return { period, items };
+}
+
+export async function fetchPayrollResults(wsId: string, period: string): Promise<PayrollResult[]> {
+  const data = await apiFetch<{ items?: Array<Record<string, unknown>> }>(
+    `/api/workspaces/${wsId}/results?period=${encodeURIComponent(period)}`
+  );
+
+  return parsePayrollResults(Array.isArray(data.items) ? data.items : []);
 }

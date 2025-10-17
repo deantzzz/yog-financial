@@ -215,6 +215,116 @@ def test_excel_templates_pipeline(client, tmp_path):
     assert calc.json()["items"]
 
 
+def test_workspace_progress_tracking(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-09"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    list_response = client.get("/api/workspaces")
+    assert list_response.status_code == 200
+    assert any(item["ws_id"] == ws_id for item in list_response.json()["items"])
+
+    progress = client.get(f"/api/workspaces/{ws_id}/progress").json()
+    step_map = {step["id"]: step for step in progress["steps"]}
+    assert step_map["workspace_setup"]["status"] == "completed"
+    assert step_map["upload_timesheets"]["status"] == "pending"
+
+    # 上传 timesheet_personal 模板
+    timesheet_wb = Workbook()
+    timesheet_ws = timesheet_wb.active
+    timesheet_ws.title = "个人工时"
+    timesheet_ws["A1"] = "姓名"
+    timesheet_ws["B1"] = "张三"
+    timesheet_ws["A2"] = "月份"
+    timesheet_ws["B2"] = "2025-09"
+    timesheet_ws.append([])
+    timesheet_ws.append(["日期", "标准工时", "加班工时", "周末节假日打卡工时", "总工时"])
+    timesheet_ws.append(["2025-09-01", 8, 2, 0, 10])
+    timesheet_ws.append(["2025-09-02", 8, 1, 0, 9])
+    timesheet_path = tmp_path / "personal.xlsx"
+    timesheet_wb.save(timesheet_path)
+
+    with timesheet_path.open("rb") as fp:
+        upload_ts = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("personal.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+    assert upload_ts.status_code == 200
+
+    progress = client.get(f"/api/workspaces/{ws_id}/progress").json()
+    step_map = {step["id"]: step for step in progress["steps"]}
+    assert step_map["upload_timesheets"]["status"] in {"in_progress", "completed"}
+    ts_requirements = step_map["upload_timesheets"]["requirements"]
+    assert any(req["id"] == "timesheet_detail" and req["status"] == "completed" for req in ts_requirements)
+
+    # 上传 roster_sheet 模板
+    roster_path = _write_csv(
+        tmp_path,
+        "roster.csv",
+        [
+            {
+                "姓名": "张三",
+                "个人比例": 0.08,
+                "公司比例": 0.1,
+                "最低基数": 5000,
+                "最高基数": 15000,
+                "入职日期": "2023-01-01",
+                "离职日期": "",
+                "月份": "2025-09",
+            }
+        ],
+    )
+
+    with roster_path.open("rb") as fp:
+        upload_roster = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("roster.csv", fp, "text/csv")},
+        )
+    assert upload_roster.status_code == 200
+
+    # 上传 policy_sheet 模板
+    policy_wb = Workbook()
+    policy_ws = policy_wb.active
+    policy_ws.title = "薪资"
+    policy_ws.append(["姓名", "模式", "基本工资", "工作日加班费率", "周末加班费率", "社保个人比例"])
+    policy_ws.append(["张三", "SALARIED", 12000, 50, 80, 0.08])
+    policy_path = tmp_path / "policy.xlsx"
+    policy_wb.save(policy_path)
+
+    with policy_path.open("rb") as fp:
+        upload_policy = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("policy.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+    assert upload_policy.status_code == 200
+
+    progress = client.get(f"/api/workspaces/{ws_id}/progress").json()
+    step_map = {step["id"]: step for step in progress["steps"]}
+    assert step_map["upload_policy"]["status"] == "completed"
+    policy_requirements = step_map["upload_policy"]["requirements"]
+    assert all(req["status"] == "completed" or req["optional"] for req in policy_requirements)
+
+    # 标记审查完成
+    checkpoint = client.post(
+        f"/api/workspaces/{ws_id}/progress/checkpoints",
+        json={"step": "review_data", "status": "completed"},
+    )
+    assert checkpoint.status_code == 200
+    progress = checkpoint.json()["progress"]
+    review_step = next(step for step in progress["steps"] if step["id"] == "review_data")
+    assert review_step["status"] == "completed"
+
+    # 触发计算并检查最终状态
+    calc = client.post(
+        f"/api/workspaces/{ws_id}/calc",
+        json={"period": "2025-09", "selected": ["张三"]},
+    )
+    assert calc.status_code == 200
+    progress = client.get(f"/api/workspaces/{ws_id}/progress").json()
+    payroll_step = next(step for step in progress["steps"] if step["id"] == "run_payroll")
+    assert payroll_step["status"] == "completed"
+
+
 def test_timesheet_with_metadata_header_rows(client, tmp_path):
     response = client.post("/api/workspaces", json={"month": "2025-04"})
     assert response.status_code == 200

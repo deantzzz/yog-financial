@@ -78,12 +78,27 @@ def _detect_from_tokens(tokens: Iterable[str]) -> str | None:
         core.lower() in token for token in lowered for core in POLICY_CORE
     ):
         return "policy_sheet"
+
+    def _has_any(options: Iterable[str]) -> bool:
+        return any(option.lower() in token for token in lowered for option in options)
+
+    roster_hits = sum(
+        1 for keyword in KEYWORDS_ROSTER for token in lowered if keyword.lower() in token
+    )
+    personal_ratio = _has_any(["个人比例", "个人缴费", "个人%", "个人缴纳"])
+    employer_ratio = _has_any(["公司比例", "单位比例", "公司缴费", "单位缴纳"])
+    base_hint = _has_any(["基数", "下限", "上限"])
+    lifecycle_hint = _has_any(["入职", "离职"])
+    id_hint = _has_any(["身份证"])
+
+    if roster_hits >= 2 or (
+        personal_ratio and (employer_ratio or base_hint or lifecycle_hint)
+    ) or (id_hint and (personal_ratio or employer_ratio or base_hint or lifecycle_hint)):
+        return "roster_sheet"
     if any(keyword.lower() in token for token in lowered for keyword in KEYWORDS_TIMESHEET_AGG):
         return "timesheet_aggregate"
     if any(keyword.lower() in token for token in lowered for keyword in KEYWORDS_TIMESHEET_PERSONAL):
         return "timesheet_personal"
-    if any(keyword.lower() in token for token in lowered for keyword in KEYWORDS_ROSTER):
-        return "roster_sheet"
     return None
 
 

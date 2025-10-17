@@ -7,6 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 from openpyxl import load_workbook
 
 from backend.core import name_normalize
@@ -49,7 +50,80 @@ def _find_header_row(ws) -> int | None:
     return None
 
 
+def _normalise_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
+    renamed = {col: str(col).strip() for col in dataframe.columns}
+    return dataframe.rename(columns=renamed)
+
+
+def _find_column(dataframe: pd.DataFrame, keywords: list[str]) -> str | None:
+    for keyword in keywords:
+        for column in dataframe.columns:
+            if keyword in str(column):
+                return column
+    return None
+
+
+def _parse_csv(path: Path, ws_id: str, period: str | None = None) -> PersonalParseResult:
+    dataframe = pd.read_csv(path)
+    dataframe = dataframe.dropna(how="all")
+    dataframe = _normalise_columns(dataframe)
+
+    name_column = _find_column(dataframe, ["姓名", "员工", "name"])
+    month_column = _find_column(dataframe, ["月份", "月度", "period"])
+
+    employee_name = ""
+    if name_column and not dataframe[name_column].dropna().empty:
+        employee_name = str(dataframe[name_column].dropna().iloc[0]).strip()
+
+    month = period or ws_id
+    if month_column and not dataframe[month_column].dropna().empty:
+        month = str(dataframe[month_column].dropna().iloc[0]).strip()
+
+    metric_columns: dict[str, str] = {}
+    for metric, keywords in {
+        "HOUR_TOTAL": ["总工时"],
+        "HOUR_STD": ["标准工时", "工作日标准工时"],
+        "HOUR_OT_WD": ["加班工时", "工作日加班工时"],
+        "HOUR_OT_WE": ["周末节假日打卡工时", "周末加班工时"],
+    }.items():
+        column = _find_column(dataframe, keywords)
+        if column:
+            metric_columns[metric] = column
+
+    totals = {metric: Decimal("0") for metric in metric_columns}
+    for metric_code, column in metric_columns.items():
+        for value in dataframe[column].tolist():
+            decimal = _safe_decimal(value)
+            if decimal is None:
+                continue
+            totals[metric_code] += decimal
+
+    facts: list[dict[str, Any]] = []
+    if employee_name:
+        for metric_code, total in totals.items():
+            if total == 0:
+                continue
+            facts.append(
+                {
+                    "employee_name": employee_name,
+                    "employee_name_norm": name_normalize.normalize(employee_name),
+                    "period_month": month,
+                    "metric_code": metric_code,
+                    "metric_value": total,
+                    "unit": "hour",
+                    "metric_label": metric_columns.get(metric_code, "个人工时"),
+                    "confidence": Decimal("0.8"),
+                    "source_sheet": None,
+                }
+            )
+
+    return PersonalParseResult(facts=facts)
+
+
 def parse(path: Path, ws_id: str, sheet_name: str | None = None, period: str | None = None) -> PersonalParseResult:
+    if path.suffix.lower() == ".csv":
+        return _parse_csv(path, ws_id, period)
+
     workbook = load_workbook(path, data_only=True)
     worksheet = workbook[sheet_name] if sheet_name and sheet_name in workbook.sheetnames else workbook.active
 
