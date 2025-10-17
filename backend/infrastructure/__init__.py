@@ -1,5 +1,6 @@
 """Infrastructure layer exports."""
 
+from .iflytek import IFlyTekOCRClient, IFlyTekError
 from .ocr import OCRClient, OCRExtractionResult, configure_ocr_client, get_ocr_client
 from .workspaces import InMemoryWorkspaceRepository, WorkspaceRepository
 
@@ -10,4 +11,6 @@ __all__ = [
     "OCRExtractionResult",
     "configure_ocr_client",
     "get_ocr_client",
+    "IFlyTekOCRClient",
+    "IFlyTekError",
 ]

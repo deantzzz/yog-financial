@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -293,6 +294,10 @@ class PipelineWorker:
     ) -> None:
         client = get_ocr_client()
         metadata: dict[str, Any]
+        root = ensure_workspace_root(payload.ws_id)
+        document_path = copy_into_zone(payload.ws_id, payload.file_path, "documents")
+        relative_document = document_path.relative_to(root).as_posix()
+
         if template.requires_ocr:
             result = client.extract_text(payload.file_path)
             text = result.text
@@ -309,7 +314,6 @@ class PipelineWorker:
         metadata.setdefault("schema", template.schema)
         metadata.setdefault("requires_ocr", template.requires_ocr)
 
-        root = ensure_workspace_root(payload.ws_id)
         target = root / "ocr" / f"{payload.file_path.stem}.json"
         with target.open("w", encoding="utf-8") as fp:
             json.dump(
@@ -325,6 +329,13 @@ class PipelineWorker:
                 indent=2,
             )
 
+        raw_tables = metadata.get("tables")
+        table_rows: list[list[str]] = []
+        if isinstance(raw_tables, list):
+            for row in raw_tables:
+                if isinstance(row, list):
+                    table_rows.append([str(cell) if cell is not None else "" for cell in row])
+
         record = {
             "ws_id": payload.ws_id,
             "source_file": payload.filename,
@@ -334,7 +345,12 @@ class PipelineWorker:
             "ocr_text": text,
             "ocr_confidence": confidence,
             "ocr_metadata": metadata,
+            "ocr_table": table_rows,
             "ingest_job_id": job_id,
+            "document_id": job_id,
+            "document_path": relative_document,
+            "review_status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
         service = get_workspace_service()
         service.add_document_record(payload.ws_id, record)

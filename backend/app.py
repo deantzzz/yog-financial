@@ -4,11 +4,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from backend.infrastructure import IFlyTekOCRClient, configure_ocr_client
 from backend.routes import upload, workspace, calc
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Yog Financial Payroll API", version="0.0.1")
+
+    app_id = os.getenv("IFLYTEK_APP_ID")
+    api_key = os.getenv("IFLYTEK_API_KEY")
+    api_secret = os.getenv("IFLYTEK_API_SECRET")
+    if app_id and api_key and api_secret:
+        host = os.getenv("IFLYTEK_OCR_HOST") or "https://webapi.xfyun.cn/v1/service/v1/ocr/recognize_table"
+        client = IFlyTekOCRClient(app_id=app_id, api_key=api_key, api_secret=api_secret, host=host)
+        configure_ocr_client(client)
 
     origins_env = os.getenv("API_CORS_ORIGINS", "")
     origins = [origin.strip() for origin in origins_env.split(",") if origin.strip()]

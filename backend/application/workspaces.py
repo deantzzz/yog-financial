@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Iterable
 
 from pydantic import ValidationError
@@ -172,6 +173,11 @@ class WorkspaceService:
 
     def list_documents(self, ws_id: str) -> list[dict]:
         return self._repository.list_documents(ws_id)
+
+    def update_document_record(self, ws_id: str, document_id: str, updates: dict) -> dict:
+        payload = dict(updates)
+        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return self._repository.update_document(ws_id, document_id, payload)
 
     def get_fact_snapshot(self, ws_id: str) -> dict[str, object]:
         return self._repository.get_fact_snapshot(ws_id)
