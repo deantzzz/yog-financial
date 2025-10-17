@@ -263,7 +263,7 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
                   style={{ blockSize: '100%' }}
                   rowHeight={rowHeight}
                   headerRowHeight={headerRowHeight}
-                  defaultColumnOptions={{ editorOptions: { editOnClick: true } }}
+                  onCellClick={({ selectCell }) => selectCell(true)}
                   onRowsChange={handleRowsChange}
                 />
               </div>
