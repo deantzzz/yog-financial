@@ -53,6 +53,9 @@ function normaliseTable(table: string[][]): string[][] {
 
 export default function OcrReviewDialog({ document, onClose, onConfirm, saving = false, error = null }: Props) {
   const [tableData, setTableData] = useState<string[][]>(() => normaliseTable(document.ocr_table));
+  const [tableZoom, setTableZoom] = useState(1);
+  const [tableWidthRatio, setTableWidthRatio] = useState(0.5);
+  const [isTableFullscreen, setIsTableFullscreen] = useState(false);
 
   useEffect(() => {
     setTableData(normaliseTable(document.ocr_table));
@@ -65,6 +68,7 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
       key: `col-${columnIndex}`,
       name: `列 ${columnIndex + 1}`,
       editor: textEditor,
+      editable: true,
       resizable: true,
       minWidth: 120,
       cellClass: 'text-sm text-slate-800',
@@ -122,25 +126,42 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
     setTableData(normaliseTable(document.ocr_table));
   };
 
+  const handleToggleFullscreen = () => {
+    setIsTableFullscreen((current) => !current);
+  };
+
+  const handleZoomChange = (value: number) => {
+    setTableZoom(Math.min(1.6, Math.max(0.8, value)));
+  };
+
   const imageUrl = document.image_url.startsWith('http')
     ? document.image_url
     : `${API_BASE_URL}${document.image_url}`;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
-        <header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">审查识别结果</h2>
-            <p className="text-sm text-slate-500">{document.source_file}</p>
-          </div>
-          <button onClick={onClose} className="text-sm text-slate-500 hover:text-slate-700">
-            关闭
-          </button>
-        </header>
+  const rowHeight = Math.max(28, Math.round(36 * tableZoom));
+  const headerRowHeight = Math.max(32, Math.round(40 * tableZoom));
 
-        <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6 lg:flex-row">
-          <div className="flex-1 overflow-auto rounded border border-slate-200 bg-slate-50 p-4">
+  const effectiveTableWidthRatio = isTableFullscreen ? 1 : Math.min(0.85, Math.max(0.3, tableWidthRatio));
+  const imagePanelWidthRatio = isTableFullscreen ? 0 : 1 - effectiveTableWidthRatio;
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-white">
+      <header className="flex items-center justify-between border-b border-slate-200 px-6 py-4 shadow-sm">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">审查识别结果</h2>
+          <p className="text-sm text-slate-500">{document.source_file}</p>
+        </div>
+        <button onClick={onClose} className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+          关闭
+        </button>
+      </header>
+
+      <div className="flex flex-1 flex-col gap-4 overflow-hidden p-4 lg:flex-row lg:p-6">
+        {isTableFullscreen ? null : (
+          <div
+            className="flex overflow-hidden rounded border border-slate-200 bg-slate-50 p-4 transition-[flex] duration-200"
+            style={{ flex: imagePanelWidthRatio }}
+          >
             <div className="relative h-full min-h-[320px] w-full">
               <Image
                 src={imageUrl}
@@ -152,9 +173,42 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
               />
             </div>
           </div>
-          <div className="flex flex-1 flex-col overflow-hidden rounded border border-slate-200">
-            <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
-              <div className="space-x-2 text-xs text-slate-600">
+        )}
+        <div
+          className="flex flex-1 flex-col overflow-hidden rounded border border-slate-200 transition-[flex] duration-200"
+          style={{ flex: effectiveTableWidthRatio }}
+        >
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <div className="flex items-center gap-2">
+                  <span className="whitespace-nowrap">缩放</span>
+                  <input
+                    type="range"
+                    min="0.8"
+                    max="1.6"
+                    step="0.1"
+                    value={tableZoom}
+                    onChange={(event) => handleZoomChange(Number(event.target.value))}
+                    className="h-2 w-28 cursor-pointer"
+                  />
+                  <span className="min-w-[3ch] text-right">{Math.round(tableZoom * 100)}%</span>
+                </div>
+                {!isTableFullscreen && (
+                  <div className="flex items-center gap-2">
+                    <span className="whitespace-nowrap">表格宽度</span>
+                    <input
+                      type="range"
+                      min="0.3"
+                      max="0.85"
+                      step="0.05"
+                      value={effectiveTableWidthRatio}
+                      onChange={(event) =>
+                        setTableWidthRatio(Math.min(0.85, Math.max(0.3, Number(event.target.value))))
+                      }
+                      className="h-2 w-28 cursor-pointer"
+                    />
+                  </div>
+                )}
                 <button onClick={handleAddRow} className="rounded bg-slate-200 px-2 py-1 text-xs hover:bg-slate-300">
                   添加行
                 </button>
@@ -163,14 +217,14 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
                 </button>
                 <button
                   onClick={handleRemoveRow}
-                  className="rounded bg-slate-200 px-2 py-1 text-xs hover:bg-slate-300"
+                  className="rounded bg-slate-200 px-2 py-1 text-xs hover:bg-slate-300 disabled:opacity-50"
                   disabled={tableData.length <= 1}
                 >
                   删除末行
                 </button>
                 <button
                   onClick={handleRemoveColumn}
-                  className="rounded bg-slate-200 px-2 py-1 text-xs hover:bg-slate-300"
+                  className="rounded bg-slate-200 px-2 py-1 text-xs hover:bg-slate-300 disabled:opacity-50"
                   disabled={columnCount <= 1}
                 >
                   删除末列
@@ -179,41 +233,54 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
                   重置
                 </button>
               </div>
-              {error && <p className="text-xs text-red-500">{error}</p>}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleToggleFullscreen}
+                  className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+                >
+                  {isTableFullscreen ? '退出全屏' : '表格全屏'}
+                </button>
+                {error && <p className="text-xs text-red-500">{error}</p>}
+              </div>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <div className="h-full overflow-hidden rounded-md border border-slate-200">
+              <div
+                className="h-full overflow-hidden rounded-md border border-slate-200 bg-white"
+                style={{ fontSize: `${(tableZoom * 0.875).toFixed(3)}rem` }}
+              >
                 <DataGrid
                   className="rdg-light h-full"
                   columns={columns}
                   rows={rows}
                   rowKeyGetter={(row) => row.id}
                   style={{ blockSize: '100%' }}
+                  rowHeight={rowHeight}
+                  headerRowHeight={headerRowHeight}
+                  onCellClick={({ selectCell }) => selectCell(true)}
                   onRowsChange={handleRowsChange}
                 />
               </div>
             </div>
-          </div>
         </div>
-
-        <footer className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
-          <p className="text-xs text-slate-500">
-            对照原图调整表格后点击确认，系统将保存修改并标记为已审查。
-          </p>
-          <div className="space-x-3">
-            <button onClick={onClose} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600">
-              取消
-            </button>
-            <button
-              onClick={() => onConfirm(tableData)}
-              disabled={saving}
-              className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? '保存中…' : '确认审查结果'}
-            </button>
-          </div>
-        </footer>
       </div>
+
+      <footer className="flex flex-col gap-3 border-t border-slate-200 bg-white px-6 py-4 shadow-inner md:flex-row md:items-center md:justify-between">
+        <p className="text-xs text-slate-500">
+          对照原图调整表格后点击确认，系统将保存修改并标记为已审查。
+        </p>
+        <div className="space-x-3 text-right">
+          <button onClick={onClose} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600">
+            取消
+          </button>
+          <button
+            onClick={() => onConfirm(tableData)}
+            disabled={saving}
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? '保存中' : '确认审查结果'}
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }
