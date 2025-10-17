@@ -65,6 +65,7 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
       key: `col-${columnIndex}`,
       name: `列 ${columnIndex + 1}`,
       editor: textEditor,
+      editable: true,
       resizable: true,
       minWidth: 120,
       cellClass: 'text-sm text-slate-800',
@@ -189,6 +190,7 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
                   rows={rows}
                   rowKeyGetter={(row) => row.id}
                   style={{ blockSize: '100%' }}
+                  defaultColumnOptions={{ editorOptions: { editOnClick: true } }}
                   onRowsChange={handleRowsChange}
                 />
               </div>
