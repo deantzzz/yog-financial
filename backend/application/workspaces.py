@@ -4,6 +4,11 @@ from __future__ import annotations
 from collections import Counter
 from typing import Iterable
 
+from pydantic import ValidationError
+
+from backend.core.name_normalize import normalize
+from backend.core.policy_utils import merge_policy_snapshots
+from backend.core.schema import PolicySnapshot
 from backend.infrastructure import InMemoryWorkspaceRepository, WorkspaceRepository
 
 
@@ -138,7 +143,23 @@ class WorkspaceService:
         return self._repository.list_facts(ws_id)
 
     def list_policy(self, ws_id: str) -> list[dict]:
-        return self._repository.list_policy(ws_id)
+        rows = self._repository.list_policy(ws_id)
+
+        aggregated: dict[tuple[str, str], PolicySnapshot] = {}
+        passthrough: list[dict] = []
+        for row in rows:
+            try:
+                snapshot = PolicySnapshot(**row)
+            except ValidationError:
+                passthrough.append(row)
+                continue
+
+            key = (normalize(snapshot.employee_name_norm), str(snapshot.period_month or ""))
+            aggregated[key] = merge_policy_snapshots(aggregated.get(key), snapshot)
+
+        merged_rows = [snapshot.model_dump() for snapshot in aggregated.values()]
+        merged_rows.extend(passthrough)
+        return merged_rows
 
     def add_fact(self, ws_id: str, record: dict) -> None:
         self._repository.add_fact(ws_id, record)
@@ -156,7 +177,7 @@ class WorkspaceService:
         return self._repository.get_fact_snapshot(ws_id)
 
     def get_policy_snapshot(self, ws_id: str) -> dict[str, object]:
-        return self._repository.get_policy_snapshot(ws_id)
+        return {"items": self.list_policy(ws_id)}
 
     def get_fact_records_for_period(self, ws_id: str, period: str) -> list[dict]:
         return [row for row in self.list_facts(ws_id) if row.get("period_month") == period]

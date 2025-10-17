@@ -215,6 +215,51 @@ def test_excel_templates_pipeline(client, tmp_path):
     assert calc.json()["items"]
 
 
+def test_policy_snapshot_merges_roster_and_policy(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-03"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    roster_rows = [
+        {
+            "姓名": "王五",
+            "个人比例": "8%",
+            "公司比例": "15%",
+        }
+    ]
+    roster_path = _write_csv(tmp_path, "roster.csv", roster_rows)
+    with roster_path.open("rb") as fp:
+        upload = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("roster.csv", fp, "text/csv")},
+        )
+    assert upload.status_code == 200
+
+    policy_rows = [
+        {
+            "姓名": "王五",
+            "模式": "SALARIED",
+            "基本工资": 15000,
+            "社保个人比例": 0.1,
+        }
+    ]
+    policy_path = _write_csv(tmp_path, "policy.csv", policy_rows)
+    with policy_path.open("rb") as fp:
+        upload = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("policy.csv", fp, "text/csv")},
+        )
+    assert upload.status_code == 200
+
+    snapshot = client.get(f"/api/workspaces/{ws_id}/policy").json()["items"]
+    matches = [item for item in snapshot if item["employee_name_norm"] == "王五"]
+    assert len(matches) == 1
+    entry = matches[0]
+    assert Decimal(str(entry["base_amount"])) == Decimal("15000")
+    assert Decimal(str(entry["social_security_json"]["employee"])) == Decimal("0.1")
+    assert Decimal(str(entry["social_security_json"]["employer"])) == Decimal("0.15")
+
+
 def test_workspace_progress_tracking(client, tmp_path):
     response = client.post("/api/workspaces", json={"month": "2025-09"})
     assert response.status_code == 200
