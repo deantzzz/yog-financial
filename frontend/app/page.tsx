@@ -16,7 +16,7 @@ import {
   listWorkspaces,
   triggerPayrollCalculation,
   updateWorkspaceCheckpoint,
-  uploadWorkspaceFile
+  uploadWorkspaceFiles
 } from '../features/workspaces/services';
 
 const DEFAULT_STEPS = [
@@ -163,7 +163,7 @@ export default function Home() {
   const [activeStep, setActiveStep] = useState<string | null>(null);
   const [loadingProgress, setLoadingProgress] = useState(false);
 
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
@@ -275,16 +275,17 @@ export default function Home() {
       setUploadMessage('请先选择工作区');
       return;
     }
-    if (!selectedFile) {
+    if (selectedFiles.length === 0) {
       setUploadMessage('请选择需要上传的文件');
       return;
     }
     setUploading(true);
     setUploadMessage(null);
     try {
-      await uploadWorkspaceFile(selectedWorkspace, selectedFile);
-      setUploadMessage('上传成功，系统已开始解析');
-      setSelectedFile(null);
+      const jobs = await uploadWorkspaceFiles(selectedWorkspace, selectedFiles);
+      const count = jobs.length || selectedFiles.length;
+      setUploadMessage(count > 1 ? `上传成功，${count} 个文件已开始解析` : '上传成功，系统已开始解析');
+      setSelectedFiles([]);
       setFileInputKey((key) => key + 1);
       await loadProgress(selectedWorkspace);
     } catch (error) {
@@ -555,8 +556,8 @@ export default function Home() {
               step={currentStep}
               workspaceId={selectedWorkspace}
               onUploadFile={handleUpload}
-              selectedFile={selectedFile}
-              setSelectedFile={setSelectedFile}
+              selectedFiles={selectedFiles}
+              setSelectedFiles={setSelectedFiles}
               fileInputKey={fileInputKey}
               uploading={uploading}
               uploadMessage={uploadMessage}
@@ -585,8 +586,8 @@ function StepDetail({
   step,
   workspaceId,
   onUploadFile,
-  selectedFile,
-  setSelectedFile,
+  selectedFiles,
+  setSelectedFiles,
   fileInputKey,
   uploading,
   uploadMessage,
@@ -605,8 +606,8 @@ function StepDetail({
   step: WorkflowStep;
   workspaceId: string;
   onUploadFile: () => void;
-  selectedFile: File | null;
-  setSelectedFile: (file: File | null) => void;
+  selectedFiles: File[];
+  setSelectedFiles: (files: File[]) => void;
   fileInputKey: number;
   uploading: boolean;
   uploadMessage: string | null;
@@ -676,8 +677,8 @@ function StepDetail({
         )}
         <UploadBox
           fileInputKey={fileInputKey}
-          selectedFile={selectedFile}
-          setSelectedFile={setSelectedFile}
+          selectedFiles={selectedFiles}
+          setSelectedFiles={setSelectedFiles}
           uploading={uploading}
           uploadMessage={uploadMessage}
           onUploadFile={onUploadFile}
@@ -725,8 +726,8 @@ function StepDetail({
         )}
         <UploadBox
           fileInputKey={fileInputKey}
-          selectedFile={selectedFile}
-          setSelectedFile={setSelectedFile}
+          selectedFiles={selectedFiles}
+          setSelectedFiles={setSelectedFiles}
           uploading={uploading}
           uploadMessage={uploadMessage}
           onUploadFile={onUploadFile}
@@ -904,15 +905,15 @@ function StepDetail({
 
 function UploadBox({
   fileInputKey,
-  selectedFile,
-  setSelectedFile,
+  selectedFiles,
+  setSelectedFiles,
   uploading,
   uploadMessage,
   onUploadFile
 }: {
   fileInputKey: number;
-  selectedFile: File | null;
-  setSelectedFile: (file: File | null) => void;
+  selectedFiles: File[];
+  setSelectedFiles: (files: File[]) => void;
   uploading: boolean;
   uploadMessage: string | null;
   onUploadFile: () => void;
@@ -923,8 +924,12 @@ function UploadBox({
         <input
           key={fileInputKey}
           type="file"
+          multiple
           className="max-w-xs text-sm text-slate-600"
-          onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+          onChange={(event) => {
+            const fileList = event.target.files;
+            setSelectedFiles(fileList ? Array.from(fileList) : []);
+          }}
         />
         <button
           type="button"
@@ -934,7 +939,11 @@ function UploadBox({
         >
           {uploading ? '上传中…' : '上传文件'}
         </button>
-        {selectedFile && <span className="text-xs text-slate-500">{selectedFile.name}</span>}
+        {selectedFiles.length > 0 && (
+          <span className="text-xs text-slate-500">
+            {selectedFiles.map((file) => file.name).join('，')}
+          </span>
+        )}
       </div>
       <p className="text-xs text-slate-500">上传成功后会自动刷新流程状态。</p>
       {uploadMessage && <p className="text-xs text-slate-500">{uploadMessage}</p>}

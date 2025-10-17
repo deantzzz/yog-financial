@@ -89,10 +89,12 @@ def test_end_to_end_workflow(client, tmp_path):
     with fact_path.open("rb") as fp:
         response = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("facts.csv", fp, "text/csv")},
+            files=[("files", ("facts.csv", fp, "text/csv"))],
         )
     assert response.status_code == 200
-    job_id = response.json()["job_id"]
+    items = response.json().get("items", [])
+    assert items, "upload should return at least one job"
+    job_id = items[0]["job_id"]
 
     # Verify job is completed
     response = client.get(f"/api/workspaces/{ws_id}/files")
@@ -116,7 +118,7 @@ def test_end_to_end_workflow(client, tmp_path):
     with policy_path.open("rb") as fp:
         response = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("policy.csv", fp, "text/csv")},
+            files=[("files", ("policy.csv", fp, "text/csv"))],
         )
     assert response.status_code == 200
 
@@ -154,7 +156,7 @@ def test_unstructured_document_pipeline(client, tmp_path):
     with image_path.open("rb") as fp:
         upload = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("receipt.png", fp, "image/png")},
+            files=[("files", ("receipt.png", fp, "image/png"))],
         )
     assert upload.status_code == 200
 
@@ -206,7 +208,7 @@ def test_excel_templates_pipeline(client, tmp_path):
     agg_wb.save(agg_path)
 
     with agg_path.open("rb") as fp:
-        upload = client.post(f"/api/workspaces/{ws_id}/upload", files={"file": ("timesheet.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+        upload = client.post(f"/api/workspaces/{ws_id}/upload", files=[("files", ("timesheet.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))])
     assert upload.status_code == 200
 
     # create policy workbook
@@ -219,7 +221,7 @@ def test_excel_templates_pipeline(client, tmp_path):
     policy_wb.save(policy_path)
 
     with policy_path.open("rb") as fp:
-        upload = client.post(f"/api/workspaces/{ws_id}/upload", files={"file": ("policy.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+        upload = client.post(f"/api/workspaces/{ws_id}/upload", files=[("files", ("policy.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))])
     assert upload.status_code == 200
 
     facts = client.get(f"/api/workspaces/{ws_id}/fact").json()["items"]
@@ -249,7 +251,7 @@ def test_policy_snapshot_merges_roster_and_policy(client, tmp_path):
     with roster_path.open("rb") as fp:
         upload = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("roster.csv", fp, "text/csv")},
+            files=[("files", ("roster.csv", fp, "text/csv"))],
         )
     assert upload.status_code == 200
 
@@ -265,7 +267,7 @@ def test_policy_snapshot_merges_roster_and_policy(client, tmp_path):
     with policy_path.open("rb") as fp:
         upload = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("policy.csv", fp, "text/csv")},
+            files=[("files", ("policy.csv", fp, "text/csv"))],
         )
     assert upload.status_code == 200
 
@@ -310,7 +312,7 @@ def test_workspace_progress_tracking(client, tmp_path):
     with timesheet_path.open("rb") as fp:
         upload_ts = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("personal.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            files=[("files", ("personal.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))],
         )
     assert upload_ts.status_code == 200
 
@@ -341,7 +343,7 @@ def test_workspace_progress_tracking(client, tmp_path):
     with roster_path.open("rb") as fp:
         upload_roster = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("roster.csv", fp, "text/csv")},
+            files=[("files", ("roster.csv", fp, "text/csv"))],
         )
     assert upload_roster.status_code == 200
 
@@ -357,7 +359,7 @@ def test_workspace_progress_tracking(client, tmp_path):
     with policy_path.open("rb") as fp:
         upload_policy = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("policy.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            files=[("files", ("policy.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))],
         )
     assert upload_policy.status_code == 200
 
@@ -406,7 +408,7 @@ def test_official_templates_pipeline(client):
         with file_path.open("rb") as fp:
             upload = client.post(
                 f"/api/workspaces/{ws_id}/upload",
-                files={"file": (filename, fp, content_type)},
+                files=[("files", (filename, fp, content_type))],
             )
         assert upload.status_code == 200
 
@@ -443,7 +445,7 @@ def test_policy_roster_merge_preserves_base_amount(client, tmp_path):
     with fact_path.open("rb") as fp:
         upload_fact = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("facts_merge.csv", fp, "text/csv")},
+            files=[("files", ("facts_merge.csv", fp, "text/csv"))],
         )
     assert upload_fact.status_code == 200
 
@@ -460,7 +462,7 @@ def test_policy_roster_merge_preserves_base_amount(client, tmp_path):
     with policy_path.open("rb") as fp:
         upload_policy = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("policy_merge.csv", fp, "text/csv")},
+            files=[("files", ("policy_merge.csv", fp, "text/csv"))],
         )
     assert upload_policy.status_code == 200
 
@@ -478,7 +480,7 @@ def test_policy_roster_merge_preserves_base_amount(client, tmp_path):
     with roster_path.open("rb") as fp:
         upload_roster = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("roster_merge.csv", fp, "text/csv")},
+            files=[("files", ("roster_merge.csv", fp, "text/csv"))],
         )
     assert upload_roster.status_code == 200
 
@@ -524,13 +526,11 @@ def test_timesheet_with_metadata_header_rows(client, tmp_path):
     with path.open("rb") as fp:
         upload = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={
-                "file": (
+            files=[("files", (
                     "metadata_timesheet.xlsx",
                     fp,
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            },
+                ))],
         )
     assert upload.status_code == 200
 
@@ -558,7 +558,7 @@ def test_policy_ingestion_case_insensitive_columns(client, tmp_path):
     with policy_path.open("rb") as fp:
         upload = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("policy_case.csv", fp, "text/csv")},
+            files=[("files", ("policy_case.csv", fp, "text/csv"))],
         )
     assert upload.status_code == 200
 
@@ -592,7 +592,7 @@ def test_period_month_normalisation_for_localised_strings(client, tmp_path):
     with fact_path.open("rb") as fp:
         upload_fact = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("localized_fact.csv", fp, "text/csv")},
+            files=[("files", ("localized_fact.csv", fp, "text/csv"))],
         )
     assert upload_fact.status_code == 200
 
@@ -608,7 +608,7 @@ def test_period_month_normalisation_for_localised_strings(client, tmp_path):
     with policy_path.open("rb") as fp:
         upload_policy = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("localized_policy.csv", fp, "text/csv")},
+            files=[("files", ("localized_policy.csv", fp, "text/csv"))],
         )
     assert upload_policy.status_code == 200
 
@@ -638,7 +638,7 @@ def test_excel_heuristic_fallback(client, tmp_path):
     with timesheet_path.open("rb") as fp:
         upload = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("heuristic_timesheet.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            files=[("files", ("heuristic_timesheet.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))],
         )
     assert upload.status_code == 200
 
@@ -653,7 +653,7 @@ def test_excel_heuristic_fallback(client, tmp_path):
     with policy_path.open("rb") as fp:
         upload_policy = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("heuristic_policy.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            files=[("files", ("heuristic_policy.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))],
         )
     assert upload_policy.status_code == 200
 

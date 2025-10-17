@@ -167,9 +167,17 @@ export async function updateWorkspaceCheckpoint(
   );
 }
 
-export async function uploadWorkspaceFile(wsId: string, file: File): Promise<{ job_id: string; status: string }> {
+export type UploadWorkspaceJob = { job_id: string; status: string; filename: string | null };
+
+export async function uploadWorkspaceFiles(wsId: string, files: File[]): Promise<UploadWorkspaceJob[]> {
+  if (files.length === 0) {
+    throw new Error('请选择需要上传的文件');
+  }
+
   const formData = new FormData();
-  formData.append('file', file);
+  files.forEach((file) => {
+    formData.append('files', file);
+  });
 
   const response = await fetch(`${API_BASE_URL}/api/workspaces/${wsId}/upload`, {
     method: 'POST',
@@ -181,7 +189,13 @@ export async function uploadWorkspaceFile(wsId: string, file: File): Promise<{ j
     throw new Error(text || '上传失败');
   }
 
-  return (await response.json()) as { job_id: string; status: string };
+  const data = (await response.json()) as { items?: Array<{ job_id?: string; status?: string; filename?: string | null }> };
+  const items = Array.isArray(data.items) ? data.items : [];
+  return items.map((item) => ({
+    job_id: String(item.job_id ?? ''),
+    status: String(item.status ?? ''),
+    filename: item.filename ?? null
+  }));
 }
 
 export type UpdateDocumentPayload = {
