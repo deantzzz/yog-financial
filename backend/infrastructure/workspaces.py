@@ -90,9 +90,9 @@ class InMemoryWorkspaceRepository:
         return ws_id
 
     def get_workspace_overview(self, ws_id: str) -> dict[str, object] | None:
-        workspace = self._workspaces.get(ws_id)
-        if workspace is None:
-            return None
+        """Return an overview for the workspace, creating a placeholder if missing."""
+
+        workspace = self._ensure_workspace(ws_id)
         jobs = [asdict(job) for job in workspace.jobs]
         documents = [dict(item) for item in workspace.documents]
         return {
