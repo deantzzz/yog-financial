@@ -36,6 +36,60 @@ repo/
   .env.example              # 环境变量示例（需复制为 .env）
 ```
 
+## 架构设计
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                              前端 (Next.js)                          │
+│  ┌──────────────────────────┐   ┌──────────────────────────────────┐ │
+│  │ UI Layer (app/*)         │──▶│ Features (features/workspaces)   │ │
+│  │  页面组件/交互逻辑         │   │ 业务适配器，封装 API 数据整形       │ │
+│  └──────────────────────────┘   └──────────────────────────────────┘ │
+│             ▲                                 │                       │
+│             │                                 ▼ 调用                  │
+│  ┌──────────────────────────┐   ┌──────────────────────────────────┐ │
+│  │ lib/api.ts               │◀──│ 基础 HTTP Client                │ │
+│  │ fetch 封装、统一错误处理    │   │ (apiFetch / API_BASE_URL)      │ │
+│  └──────────────────────────┘   └──────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
+                   │ REST/JSON
+┌──────────────────────────────────────────────────────────────────────┐
+│                              后端 (FastAPI)                          │
+│  Presentation Layer (routes/)  ── 调用 ──▶ Application (application/) │
+│  └ FastAPI 路由、参数校验            │            └ 用例服务/领域编排        │
+│                                      ▼                              │
+│                         Infrastructure (infrastructure/)            │
+│                         └ 仓储实现、持久化适配器                      │
+│                                      ▼                              │
+│                           Domain (domain/)                          │
+│                           └ 核心实体、值对象                          │
+│                                      ▼                              │
+│                         Workers/Core Modules                         │
+│                         └ 解析流水线、规则引擎                        │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### 后端分层说明
+
+- **`backend/routes/`（表示层）**：仅处理请求/响应，将输入转换为领域语言后交给应用服务。
+- **`backend/application/`（应用层）**：封装工作区、计算等用例逻辑，例如 `WorkspaceService` 负责协调仓储、规则引擎与流水线。
+- **`backend/infrastructure/`（基础设施层）**：提供 `WorkspaceRepository` 的具体实现（当前为内存版，可替换为数据库/DuckDB）。
+- **`backend/domain/`（领域层）**：定义 `WorkspaceState`、`JobRecord` 等基础实体，确保业务规则聚合有清晰的建模。
+- **核心能力模块**（`core/`、`workers/`、`extractors/` 等）：聚焦规则引擎、文件解析等领域算法，通过应用层注入所需服务。
+
+### 前端分层说明
+
+- **UI 层（`frontend/app/*`）**：React 组件只负责交互与展示，从业务服务获取已整形的数据。
+- **业务服务层（`frontend/features/workspaces/services.ts`）**：封装接口调用、数据清洗与类型约束，对外输出领域化的 TypeScript 类型。
+- **基础设施层（`frontend/lib/api.ts`）**：提供统一的 `apiFetch` 封装，附带错误处理与 Base URL 管理。
+
+### 开发与扩展指南
+
+1. **新增后端用例**：在 `application/` 中编写服务或用例函数，再通过 `routes/` 注入；若需持久化，扩展 `infrastructure/` 仓储实现。
+2. **扩展流水线/规则**：在 `workers/` 或 `core/` 中实现算法，使用 `WorkspaceService` 读写状态，保证与表示层解耦。
+3. **新增前端页面**：在 `features/` 目录定义服务和类型，复用 `lib/api.ts`，再在 `app/` 目录创建 UI 组件，保持“组件只消费业务数据”的模式。
+4. **测试建议**：使用 `tests/` 内的端到端用例覆盖关键流程，必要时在 `application` 层添加单元测试，确保服务契约稳定。
+
 ## 环境依赖
 
 - Python 3.11+
@@ -66,7 +120,10 @@ repo/
 
 4. 访问 `http://127.0.0.1:8000/docs` 查看自动生成的 OpenAPI 文档。
 
-> 提示：可使用 `samples/` 目录中的指引脚本即时生成示例 CSV/Excel，测试上传、解析与计算流程。
+> 提示：仓库提供了两类参考文件：
+>
+> - `samples/templates/` 下的 Excel/CSV 上传模板，可通过前端「上传资料」直接验证解析器。
+> - `samples/facts_sample.csv` 与 `samples/policy_sample.csv` 展示了流水线最终接收的标准化事实/口径结构，适合 API 自动化或对接第三方系统时使用。
 
 ## 前端控制台
 
@@ -122,6 +179,15 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
 
 > 当前仓库中的 `backend/extractors/generic_llm.py` 为预留入口，实际接入 Azure OpenAI 时请确保上述变量已配置，并在运行环境中可见（`.env` 或部署平台配置）。
 
+## 傻瓜式上手流程
+
+1. **准备 4 个模板**：直接使用 `samples/templates/` 下的示例，分别对应员工工时明细（`timesheet_personal`）、班组工时汇总（`timesheet_aggregate`，可选）、员工花名册（`roster_sheet`）以及薪酬口径与参数（`policy_sheet`）。模板中的“月份”列仅作提示，系统最终会以当前工作区的月份作为计算周期。
+2. **依次上传**：在前端“上传工时与计薪基础”“上传口径与花名册”两个步骤中依次上传上述文件，系统会自动识别模板并登记步骤完成情况。
+3. **无需额外数据**：流水线会把这些 Excel/CSV 模板转写为标准化的事实（facts）与口径（policy）记录，无需再手工上传 `facts`/`policy` CSV；这些标准化接口仅面向 API/自动化场景。
+4. **触发计算并导出**：完成审查后，在“执行计薪并导出”一步选择计薪月份触发计算，稍后刷新即可看到非零的实发金额与扣缴项目。
+
+> 若触发计算后仍出现全部工资为 0，请确认薪酬口径中是否填写了基本工资/时薪，以及是否已上传 roster_sheet 提供社保比例。系统会保留各模板的最新上传信息，便于快速排查。
+
 ## 工作流简介
 
 1. **创建工作区**：调用 `POST /api/workspaces`，指定月份（`YYYY-MM`），系统将在 `WORKSPACES_ROOT` 下创建目录结构。
@@ -131,16 +197,31 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
 5. **触发计算**：调用 `POST /api/workspaces/{ws}/calc`，规则引擎基于当前事实/口径数据计算工资结果，并持久化于工作区状态中。
 6. **导出结果**：查询 `/api/workspaces/{ws}/results` 获取已计算的记录，或后续扩展导出模块生成银行/税务文件。
 
-## 示例数据与模板格式
+## 上传模板与标准化数据
 
-`samples/` 目录内提供了生成脚本，可用于快速体验：
+系统支持两条互补的输入路径：**上传模板** 负责将常见的人事/工时表格自动解析为标准化记录；**标准化数据接口** 则允许直接提交规则引擎可消费的事实 (`facts`) 与口径 (`policy`) 数据结构，便于与外部系统对接。
 
-- `facts_sample.csv`：包含 `employee_name`、`period_month`、`metric_code`、`metric_value` 等字段，上传后会生成事实记录；
-- `policy_sample.csv`：包含 `employee_name_norm`、`mode`、`base_amount`、`ot_*` 等字段，上传后会生成口径快照；
-- `scripts/make_sample_timesheet.py`：即时生成“月度工时汇总确认表”结构的 Excel；
-- `scripts/make_sample_policy.py`：即时生成薪资口径 Excel，避免将二进制文件提交到仓库。
+### 官方上传模板（前端常用）
 
-流水线当前支持以下格式：
+| 模板文件 | 上传 `schema` | 对应解析器 | 产出数据 | 主要作用 |
+| --- | --- | --- | --- | --- |
+| `samples/templates/timesheet_personal_template.csv` | `timesheet_personal` | `backend/extractors/timesheet_personal.py` | `facts` | 上传个人打卡明细，生成逐日工时事实。 |
+| `samples/templates/timesheet_aggregate_template.csv` | `timesheet_aggregate` | `backend/extractors/timesheet_aggregate.py` | `facts` | 上传月度汇总工时，生成聚合工时事实。 |
+| `samples/templates/policy_sheet_template.csv` | `policy_sheet` | `backend/extractors/policy_sheet.py` | `policy` | 上传薪酬口径与加班倍率，生成规则引擎使用的口径快照。 |
+| `samples/templates/roster_sheet_template.csv` | `roster_sheet` | `backend/extractors/roster_sheet.py` | `policy` | 上传花名册及社保参数，补齐口径中的社保配置。 |
+
+解析器会把识别到的事实/口径记录写入工作区内存与 `workspaces/<WS>/csv|policy` 目录，供后续计算使用。【F:backend/workers/pipeline.py†L349-L401】【F:backend/application/workspaces.py†L137-L208】
+
+### 标准化事实/口径数据（API/自动化）
+
+当外部系统已经完成字段对齐时，可以绕过 Excel 模板，直接上传标准化 CSV/JSON：
+
+| 标准化文件 | 上传方式 | 必填字段 | 典型场景 |
+| --- | --- | --- | --- |
+| `samples/facts_sample.csv` | `POST /api/workspaces/{ws}/upload`，CSV/JSON 均可 | `employee_name`、`period_month`、`metric_code`、`metric_value` | 第三方排班系统直接推送工时/金额等事实指标。 |
+| `samples/policy_sample.csv` | 同上 | `employee_name_norm`、`period_month`、`mode` | HRIS 或策略服务直接推送薪酬口径与津贴扣款。 |
+
+流水线会根据列名自动判断事实或口径数据，并复用与模板解析相同的校验及持久化逻辑。【F:backend/workers/pipeline.py†L332-L383】【F:backend/core/rules_v1.py†L98-L154】因此 `facts`/`policy` 并非冗余文件，而是标准化入库的终态结构，可用于 API 调试、自动化测试或系统对接。
 
 - **事实数据 CSV/JSON**：必须包含 `employee_name`、`period_month`、`metric_code`、`metric_value`，可选列会自动透传至审计字段；
 - **口径数据 CSV/JSON**：必须包含 `employee_name_norm`、`period_month`、`mode`，其余金额/倍率字段将自动转换为 `Decimal`；
@@ -148,6 +229,10 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
 - **Excel 工资口径模板**：识别“基本工资/时薪、加班倍率/费率、津贴/扣款、社保比例”等列并生成口径快照；
 - **Excel 名册/社保模板**：提取社保个人/公司比例与基数上下限，补充到口径快照；
 - **其他类型文件**：会被安全存储在 `raw/` 目录。若模板识别失败，将启用启发式 Excel 解析器提取可能的姓名、工时和金额字段；若仍无法解析，则生成占位记录提示人工介入。
+
+> 若希望直接验证标准化后的事实与口径入库流程，可在 `samples/` 目录中找到 `facts_sample.csv` 与 `policy_sample.csv`，复制后上传即可。
+
+> 样例目录位于 `samples/`。查阅 `samples/README.md` 可了解每种模板的字段释义，并按照实际业务扩展列名或补充额外字段。
 
 如需扩展更多模板或解析器，可在 `backend/workers/pipeline.py` 中添加新的探测与解析逻辑，或编写专用的 extractor 模块。
 

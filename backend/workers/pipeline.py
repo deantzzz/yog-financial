@@ -8,13 +8,14 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 import ast
+import logging
 
 try:  # pragma: no cover - import-time fallback
     import pandas as pd
 except ModuleNotFoundError:  # pragma: no cover - executed in minimal envs
     from backend.utils import simple_dataframe as pd
 
-from backend.core import state
+from backend.application import get_workspace_service
 from backend.core import hashing, name_normalize
 from backend.core.csvio import write_records_to_csv
 from backend.core.schema import FactRecord, PolicySnapshot
@@ -27,6 +28,10 @@ from backend.extractors import (
     timesheet_aggregate as aggregate_parser,
     timesheet_personal as personal_parser,
 )
+from backend.infrastructure import get_ocr_client
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -128,30 +133,72 @@ class PipelineWorker:
 
     async def enqueue(self, payload: PipelineRequest) -> PipelineJob:
         async with self._lock:
-            store = state.StateStore.instance()
-            job_id = store.next_job_id()
-            store.register_upload(payload.ws_id, job_id, payload.filename)
-            store.update_job_status(payload.ws_id, job_id, "processing")
+            service = get_workspace_service()
+            job_id = service.next_job_id()
+            service.register_upload(payload.ws_id, job_id, payload.filename)
+            service.update_job_status(payload.ws_id, job_id, "processing")
             try:
                 await asyncio.to_thread(self._process_file, payload, job_id)
             except Exception as exc:  # pragma: no cover - defensive branch
-                store.update_job_status(payload.ws_id, job_id, "failed", error=str(exc))
+                service.update_job_status(payload.ws_id, job_id, "failed", error=str(exc))
                 raise
             else:
-                store.update_job_status(payload.ws_id, job_id, "completed")
+                service.update_job_status(payload.ws_id, job_id, "completed")
             return PipelineJob(job_id=job_id, status="completed")
 
     def _process_file(self, payload: PipelineRequest, job_id: str) -> None:
         ensure_workspace_root(payload.ws_id)
         suffix = payload.file_path.suffix.lower()
+        template = detect.detect(payload.file_path)
         if suffix == ".csv":
             copy_into_zone(payload.ws_id, payload.file_path, "csv")
+            if template.schema == "timesheet_personal":
+                result = personal_parser.parse(
+                    payload.file_path,
+                    ws_id=payload.ws_id,
+                    sheet_name=None,
+                    period=payload.ws_id,
+                )
+                if result.facts:
+                    self._ingest_fact_records(payload, job_id, result.facts, template.schema)
+                    return
+            elif template.schema == "timesheet_aggregate":
+                result = aggregate_parser.parse(
+                    payload.file_path,
+                    ws_id=payload.ws_id,
+                    sheet_name=None,
+                    period=payload.ws_id,
+                )
+                if result.facts:
+                    self._ingest_fact_records(payload, job_id, result.facts, template.schema)
+                    return
+            elif template.schema == "policy_sheet":
+                result = policy_parser.parse(
+                    payload.file_path,
+                    ws_id=payload.ws_id,
+                    sheet_name=None,
+                    period=payload.ws_id,
+                )
+                if result.policies:
+                    self._ingest_policy_records(payload, job_id, result.policies, template.schema)
+                    return
+            elif template.schema == "roster_sheet":
+                result = roster_parser.parse(
+                    payload.file_path,
+                    ws_id=payload.ws_id,
+                    sheet_name=None,
+                    period=payload.ws_id,
+                )
+                if result.policies:
+                    self._ingest_policy_records(payload, job_id, result.policies, template.schema)
+                    return
+
             self._ingest_csv(payload, job_id)
+            return
         elif suffix == ".json":
             copy_into_zone(payload.ws_id, payload.file_path, "json")
             self._ingest_json(payload, job_id)
         elif suffix in {".xlsx", ".xls", ".xlsm"}:
-            template = detect.detect(payload.file_path)
             sheet_name = template.sheet
             handled_fact = False
             handled_policy = False
@@ -223,17 +270,75 @@ class PipelineWorker:
             ]
 
             if heuristic_facts:
-                self._ingest_fact_records(payload, job_id, heuristic_facts, "heuristic")
+                self._ingest_fact_records(payload, job_id, heuristic_facts, "heuristic_fact")
                 handled_fact = True
 
             if not handled_policy and heuristic.policies:
-                self._ingest_policy_records(payload, job_id, heuristic.policies, "heuristic")
+                self._ingest_policy_records(payload, job_id, heuristic.policies, "heuristic_policy")
                 handled_policy = True
 
             if not handled_fact and not handled_policy:
                 self._record_unparsed(payload, job_id)
+        elif template.schema in {"image_document", "unstructured_document", "text_document"} or template.requires_ocr:
+            copy_into_zone(payload.ws_id, payload.file_path, "documents")
+            self._ingest_unstructured(payload, job_id, template)
         else:
             self._record_unparsed(payload, job_id)
+
+    def _ingest_unstructured(
+        self,
+        payload: PipelineRequest,
+        job_id: str,
+        template: detect.DetectedTemplate,
+    ) -> None:
+        client = get_ocr_client()
+        metadata: dict[str, Any]
+        if template.requires_ocr:
+            result = client.extract_text(payload.file_path)
+            text = result.text
+            confidence = result.confidence
+            metadata = dict(result.metadata or {})
+        else:
+            try:
+                text = payload.file_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                text = payload.file_path.read_text(encoding="utf-8", errors="ignore")
+            confidence = None
+            metadata = {"provider": "native", "reason": "text document"}
+
+        metadata.setdefault("schema", template.schema)
+        metadata.setdefault("requires_ocr", template.requires_ocr)
+
+        root = ensure_workspace_root(payload.ws_id)
+        target = root / "ocr" / f"{payload.file_path.stem}.json"
+        with target.open("w", encoding="utf-8") as fp:
+            json.dump(
+                {
+                    "schema": template.schema,
+                    "requires_ocr": template.requires_ocr,
+                    "text": text,
+                    "confidence": confidence,
+                    "metadata": metadata,
+                },
+                fp,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+        record = {
+            "ws_id": payload.ws_id,
+            "source_file": payload.filename,
+            "source_sha256": hashing.sha256_file(payload.file_path),
+            "schema": template.schema,
+            "requires_ocr": template.requires_ocr,
+            "ocr_text": text,
+            "ocr_confidence": confidence,
+            "ocr_metadata": metadata,
+            "ingest_job_id": job_id,
+        }
+        service = get_workspace_service()
+        service.add_document_record(payload.ws_id, record)
+        logger.debug("Stored unstructured document %s for workspace %s", payload.filename, payload.ws_id)
 
     def _ingest_csv(self, payload: PipelineRequest, job_id: str) -> None:
         dataframe = pd.read_csv(payload.file_path)
@@ -271,6 +376,13 @@ class PipelineWorker:
         root = ensure_workspace_root(payload.ws_id)
         target = root / "csv" / f"{Path(payload.filename).stem}_{schema}.csv"
         write_records_to_csv(target, records)
+        service = get_workspace_service()
+        service.register_requirement_for_schema(
+            payload.ws_id,
+            schema,
+            filename=payload.filename,
+            job_id=job_id,
+        )
 
     def _ingest_policy_records(
         self,
@@ -287,6 +399,13 @@ class PipelineWorker:
         root = ensure_workspace_root(payload.ws_id)
         target = root / "policy" / f"{Path(payload.filename).stem}_{schema}.csv"
         write_records_to_csv(target, records)
+        service = get_workspace_service()
+        service.register_requirement_for_schema(
+            payload.ws_id,
+            schema,
+            filename=payload.filename,
+            job_id=job_id,
+        )
 
     def _record_unparsed(self, payload: PipelineRequest, job_id: str) -> None:
         record = {
@@ -304,7 +423,8 @@ class PipelineWorker:
             "confidence": Decimal("0"),
             "raw_text_hash": hashing.sha256_text(payload.filename),
         }
-        state.StateStore.instance().add_fact(payload.ws_id, record)
+        service = get_workspace_service()
+        service.add_fact(payload.ws_id, record)
 
     def _ingest_fact_rows(self, payload: PipelineRequest, job_id: str, dataframe: pd.DataFrame) -> None:
         required = {"employee_name", "period_month", "metric_code", "metric_value"}
@@ -313,7 +433,7 @@ class PipelineWorker:
             raise ValueError(f"事实数据缺少字段: {', '.join(missing)}")
 
         sha256 = hashing.sha256_file(payload.file_path)
-        store = state.StateStore.instance()
+        service = get_workspace_service()
         for row in dataframe.to_dict(orient="records"):
             employee_name = str(row.get("employee_name") or "")
             if not employee_name:
@@ -366,7 +486,7 @@ class PipelineWorker:
                 ),
                 tags_json=tags,
             )
-            store.add_fact(payload.ws_id, fact.model_dump())
+            service.add_fact(payload.ws_id, fact.model_dump())
 
     def _ingest_policy_rows(self, payload: PipelineRequest, job_id: str, dataframe: pd.DataFrame) -> None:
         normalised_columns = {
@@ -379,7 +499,7 @@ class PipelineWorker:
             raise ValueError(f"口径数据缺少字段: {', '.join(missing)}")
 
         sha256 = hashing.sha256_file(payload.file_path)
-        store = state.StateStore.instance()
+        service = get_workspace_service()
         rows = dataframe.to_dict(orient="records")
 
         def get_value(row: dict[str, Any], key: str) -> Any:
@@ -447,7 +567,7 @@ class PipelineWorker:
             payload_dict["ingest_job_id"] = job_id
 
             snapshot = PolicySnapshot(**payload_dict)
-            store.add_policy(payload.ws_id, snapshot.model_dump())
+            service.add_policy(payload.ws_id, snapshot.model_dump())
 
 
 _worker: PipelineWorker | None = None

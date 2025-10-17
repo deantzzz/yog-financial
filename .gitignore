@@ -8,6 +8,10 @@ logs/*
 !logs/.gitkeep
 *.parquet
 *.csv
+!samples/templates/
+!samples/templates/*.csv
+!samples/facts_sample.csv
+!samples/policy_sample.csv
 frontend/node_modules/
 frontend/.next/
 frontend/.turbo/

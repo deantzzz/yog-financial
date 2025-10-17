@@ -1,22 +1,24 @@
 import csv
+import json
 import os
 import sys
 from decimal import Decimal
 from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from backend.core import state
+from backend.application import get_workspace_service, reset_workspace_state
 
 
 @pytest.fixture(autouse=True)
 def reset_state():
-    state.StateStore.reset()
+    reset_workspace_state()
     yield
-    state.StateStore.reset()
+    reset_workspace_state()
 
 
 @pytest.fixture()
@@ -141,6 +143,36 @@ def test_end_to_end_workflow(client, tmp_path):
     assert items and items[0]["employee_name_norm"] == "张三"
 
 
+def test_unstructured_document_pipeline(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-05"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    image_path = tmp_path / "receipt.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    with image_path.open("rb") as fp:
+        upload = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("receipt.png", fp, "image/png")},
+        )
+    assert upload.status_code == 200
+
+    service = get_workspace_service()
+    documents = service.list_documents(ws_id)
+    assert len(documents) == 1
+    document = documents[0]
+    assert document["source_file"] == "receipt.png"
+    assert document["schema"] == "image_document"
+    assert document["requires_ocr"] is True
+    assert document["ocr_metadata"]["provider"] == "noop"
+
+    ocr_json = tmp_path / ws_id / "ocr" / "receipt.json"
+    assert ocr_json.exists()
+    payload = json.loads(ocr_json.read_text(encoding="utf-8"))
+    assert payload["schema"] == "image_document"
+
+
 def test_excel_templates_pipeline(client, tmp_path):
     response = client.post("/api/workspaces", json={"month": "2025-02"})
     assert response.status_code == 200
@@ -181,6 +213,265 @@ def test_excel_templates_pipeline(client, tmp_path):
     calc = client.post(f"/api/workspaces/{ws_id}/calc", json={"period": "2025-02", "selected": ["李四"]})
     assert calc.status_code == 200
     assert calc.json()["items"]
+
+
+def test_policy_snapshot_merges_roster_and_policy(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-03"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    roster_rows = [
+        {
+            "姓名": "王五",
+            "个人比例": "8%",
+            "公司比例": "15%",
+        }
+    ]
+    roster_path = _write_csv(tmp_path, "roster.csv", roster_rows)
+    with roster_path.open("rb") as fp:
+        upload = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("roster.csv", fp, "text/csv")},
+        )
+    assert upload.status_code == 200
+
+    policy_rows = [
+        {
+            "姓名": "王五",
+            "模式": "SALARIED",
+            "基本工资": 15000,
+            "社保个人比例": 0.1,
+        }
+    ]
+    policy_path = _write_csv(tmp_path, "policy.csv", policy_rows)
+    with policy_path.open("rb") as fp:
+        upload = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("policy.csv", fp, "text/csv")},
+        )
+    assert upload.status_code == 200
+
+    snapshot = client.get(f"/api/workspaces/{ws_id}/policy").json()["items"]
+    matches = [item for item in snapshot if item["employee_name_norm"] == "王五"]
+    assert len(matches) == 1
+    entry = matches[0]
+    assert Decimal(str(entry["base_amount"])) == Decimal("15000")
+    assert Decimal(str(entry["social_security_json"]["employee"])) == Decimal("0.1")
+    assert Decimal(str(entry["social_security_json"]["employer"])) == Decimal("0.15")
+
+
+def test_workspace_progress_tracking(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-09"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    list_response = client.get("/api/workspaces")
+    assert list_response.status_code == 200
+    assert any(item["ws_id"] == ws_id for item in list_response.json()["items"])
+
+    progress = client.get(f"/api/workspaces/{ws_id}/progress").json()
+    step_map = {step["id"]: step for step in progress["steps"]}
+    assert step_map["workspace_setup"]["status"] == "completed"
+    assert step_map["upload_timesheets"]["status"] == "pending"
+
+    # 上传 timesheet_personal 模板
+    timesheet_wb = Workbook()
+    timesheet_ws = timesheet_wb.active
+    timesheet_ws.title = "个人工时"
+    timesheet_ws["A1"] = "姓名"
+    timesheet_ws["B1"] = "张三"
+    timesheet_ws["A2"] = "月份"
+    timesheet_ws["B2"] = "2025-09"
+    timesheet_ws.append([])
+    timesheet_ws.append(["日期", "标准工时", "加班工时", "周末节假日打卡工时", "总工时"])
+    timesheet_ws.append(["2025-09-01", 8, 2, 0, 10])
+    timesheet_ws.append(["2025-09-02", 8, 1, 0, 9])
+    timesheet_path = tmp_path / "personal.xlsx"
+    timesheet_wb.save(timesheet_path)
+
+    with timesheet_path.open("rb") as fp:
+        upload_ts = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("personal.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+    assert upload_ts.status_code == 200
+
+    progress = client.get(f"/api/workspaces/{ws_id}/progress").json()
+    step_map = {step["id"]: step for step in progress["steps"]}
+    assert step_map["upload_timesheets"]["status"] in {"in_progress", "completed"}
+    ts_requirements = step_map["upload_timesheets"]["requirements"]
+    assert any(req["id"] == "timesheet_detail" and req["status"] == "completed" for req in ts_requirements)
+
+    # 上传 roster_sheet 模板
+    roster_path = _write_csv(
+        tmp_path,
+        "roster.csv",
+        [
+            {
+                "姓名": "张三",
+                "个人比例": 0.08,
+                "公司比例": 0.1,
+                "最低基数": 5000,
+                "最高基数": 15000,
+                "入职日期": "2023-01-01",
+                "离职日期": "",
+                "月份": "2025-09",
+            }
+        ],
+    )
+
+    with roster_path.open("rb") as fp:
+        upload_roster = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("roster.csv", fp, "text/csv")},
+        )
+    assert upload_roster.status_code == 200
+
+    # 上传 policy_sheet 模板
+    policy_wb = Workbook()
+    policy_ws = policy_wb.active
+    policy_ws.title = "薪资"
+    policy_ws.append(["姓名", "模式", "基本工资", "工作日加班费率", "周末加班费率", "社保个人比例"])
+    policy_ws.append(["张三", "SALARIED", 12000, 50, 80, 0.08])
+    policy_path = tmp_path / "policy.xlsx"
+    policy_wb.save(policy_path)
+
+    with policy_path.open("rb") as fp:
+        upload_policy = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("policy.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+    assert upload_policy.status_code == 200
+
+    progress = client.get(f"/api/workspaces/{ws_id}/progress").json()
+    step_map = {step["id"]: step for step in progress["steps"]}
+    assert step_map["upload_policy"]["status"] == "completed"
+    policy_requirements = step_map["upload_policy"]["requirements"]
+    assert all(req["status"] == "completed" or req["optional"] for req in policy_requirements)
+
+    # 标记审查完成
+    checkpoint = client.post(
+        f"/api/workspaces/{ws_id}/progress/checkpoints",
+        json={"step": "review_data", "status": "completed"},
+    )
+    assert checkpoint.status_code == 200
+    progress = checkpoint.json()["progress"]
+    review_step = next(step for step in progress["steps"] if step["id"] == "review_data")
+    assert review_step["status"] == "completed"
+
+    # 触发计算并检查最终状态
+    calc = client.post(
+        f"/api/workspaces/{ws_id}/calc",
+        json={"period": "2025-09", "selected": ["张三"]},
+    )
+    assert calc.status_code == 200
+    progress = client.get(f"/api/workspaces/{ws_id}/progress").json()
+    payroll_step = next(step for step in progress["steps"] if step["id"] == "run_payroll")
+    assert payroll_step["status"] == "completed"
+
+
+def test_official_templates_pipeline(client):
+    response = client.post("/api/workspaces", json={"month": "2025-10"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    templates_dir = Path(__file__).resolve().parents[1] / "samples" / "templates"
+    uploads = [
+        ("timesheet_personal_template.csv", "text/csv"),
+        ("timesheet_aggregate_template.csv", "text/csv"),
+        ("roster_sheet_template.csv", "text/csv"),
+        ("policy_sheet_template.csv", "text/csv"),
+    ]
+
+    for filename, content_type in uploads:
+        file_path = templates_dir / filename
+        with file_path.open("rb") as fp:
+            upload = client.post(
+                f"/api/workspaces/{ws_id}/upload",
+                files={"file": (filename, fp, content_type)},
+            )
+        assert upload.status_code == 200
+
+    calc = client.post(
+        f"/api/workspaces/{ws_id}/calc",
+        json={"period": "2025-10"},
+    )
+    assert calc.status_code == 200
+    items = calc.json()["items"]
+    assert items
+
+    net_values = [Decimal(str(item["net_pay"])) for item in items]
+    base_values = [Decimal(str(item["base_pay"])) for item in items]
+
+    assert all(value != Decimal("0") for value in net_values)
+    assert all(value > Decimal("0") for value in base_values)
+
+
+def test_policy_roster_merge_preserves_base_amount(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-03"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    fact_rows = [
+        {
+            "employee_name": "张三",
+            "period_month": "2025-03",
+            "metric_code": "HOUR_TOTAL",
+            "metric_value": 160,
+            "unit": "hour",
+        }
+    ]
+    fact_path = _write_csv(tmp_path, "facts_merge.csv", fact_rows)
+    with fact_path.open("rb") as fp:
+        upload_fact = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("facts_merge.csv", fp, "text/csv")},
+        )
+    assert upload_fact.status_code == 200
+
+    policy_rows = [
+        {
+            "employee_name_norm": "张三",
+            "period_month": "2025-03",
+            "mode": "SALARIED",
+            "base_amount": 10000,
+            "social_security_json": {"employee": 0.0},
+        }
+    ]
+    policy_path = _write_csv(tmp_path, "policy_merge.csv", policy_rows)
+    with policy_path.open("rb") as fp:
+        upload_policy = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("policy_merge.csv", fp, "text/csv")},
+        )
+    assert upload_policy.status_code == 200
+
+    roster_rows = [
+        {
+            "姓名": "张三",
+            "个人比例": 0.08,
+            "公司比例": 0.1,
+            "最低基数": 5000,
+            "最高基数": 20000,
+            "月份": "2025-03",
+        }
+    ]
+    roster_path = _write_csv(tmp_path, "roster_merge.csv", roster_rows)
+    with roster_path.open("rb") as fp:
+        upload_roster = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("roster_merge.csv", fp, "text/csv")},
+        )
+    assert upload_roster.status_code == 200
+
+    calc = client.post(
+        f"/api/workspaces/{ws_id}/calc",
+        json={"period": "2025-03", "selected": ["张三"]},
+    )
+    assert calc.status_code == 200
+    item = calc.json()["items"][0]
+    assert Decimal(str(item["base_pay"])) > Decimal("0")
+    assert Decimal(str(item["social_security_personal"])) == Decimal("800.00")
 
 
 def test_timesheet_with_metadata_header_rows(client, tmp_path):

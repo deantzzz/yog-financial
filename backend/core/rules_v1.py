@@ -6,8 +6,9 @@ from pathlib import Path
 from typing import Iterable
 
 import yaml
-from backend.core import state
+from backend.application import get_workspace_service
 from backend.core.name_normalize import normalize
+from backend.core.policy_utils import merge_policy_snapshots
 from backend.core.schema import FactRecord, PayrollResultModel, PolicySnapshot
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
@@ -42,8 +43,6 @@ def _load_tax_table() -> dict:
 
 
 TAX_TABLE = _load_tax_table()
-
-
 def _aggregate_facts(records: Iterable[FactRecord]) -> AggregatedFacts:
     agg = AggregatedFacts()
     for record in records:
@@ -93,9 +92,9 @@ def _apply_tax(gross: Decimal, personal_ss: Decimal) -> Decimal:
 
 
 def calculate_period(ws_id: str, period: str, employees: list[str] | None = None) -> list[PayrollResult]:
-    store = state.StateStore.instance()
-    fact_rows = [FactRecord(**row) for row in store.list_facts(ws_id) if row.get("period_month") == period]
-    policy_rows = [PolicySnapshot(**row) for row in store.list_policy(ws_id) if row.get("period_month") == period]
+    service = get_workspace_service()
+    fact_rows = [FactRecord(**row) for row in service.get_fact_records_for_period(ws_id, period)]
+    policy_rows = [PolicySnapshot(**row) for row in service.get_policy_records_for_period(ws_id, period)]
 
     selected = {normalize(name) for name in employees} if employees else None
 
@@ -109,7 +108,7 @@ def calculate_period(ws_id: str, period: str, employees: list[str] | None = None
     policy_by_employee: dict[str, PolicySnapshot] = {}
     for snapshot in policy_rows:
         key = normalize(snapshot.employee_name_norm)
-        policy_by_employee[key] = snapshot
+        policy_by_employee[key] = merge_policy_snapshots(policy_by_employee.get(key), snapshot)
 
     results: list[PayrollResult] = []
     for key, records in facts_by_employee.items():

@@ -5,7 +5,17 @@ import shutil
 from pathlib import Path
 
 
-DEFAULT_SUBDIRS = ["raw", "csv", "json", "fact", "policy", "results", "reports"]
+DEFAULT_SUBDIRS = [
+    "raw",
+    "csv",
+    "json",
+    "fact",
+    "policy",
+    "results",
+    "reports",
+    "documents",
+    "ocr",
+]
 
 
 def _base_root() -> Path:

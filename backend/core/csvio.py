@@ -11,8 +11,3 @@ def write_records_to_csv(path: Path, rows: Iterable[dict]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False)
     return path
-
-
-def read_csv_records(path: Path) -> list[dict]:
-    df = pd.read_csv(path)
-    return df.to_dict(orient="records")

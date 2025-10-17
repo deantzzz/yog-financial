@@ -34,6 +34,14 @@ def _find_column(dataframe: pd.DataFrame, keywords: list[str]) -> str | None:
 def _safe_decimal(value: Any) -> Decimal | None:
     if value is None or value == "":
         return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.endswith("%"):
+            try:
+                return Decimal(stripped.rstrip("%")) / Decimal("100")
+            except Exception:  # pragma: no cover - invalid percent
+                return None
+        value = stripped
     try:
         decimal_value = Decimal(str(value))
     except Exception:  # pragma: no cover - invalid number
@@ -44,7 +52,11 @@ def _safe_decimal(value: Any) -> Decimal | None:
 
 
 def parse(path: Path, ws_id: str, sheet_name: str | None = None, period: str | None = None) -> RosterParseResult:
-    dataframe = pd.read_excel(path, sheet_name=sheet_name)
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        dataframe = pd.read_csv(path)
+    else:
+        dataframe = pd.read_excel(path, sheet_name=sheet_name)
     dataframe = _normalise_columns(dataframe)
 
     name_column = _find_column(dataframe, ["姓名", "员工", "name"])

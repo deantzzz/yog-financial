@@ -68,7 +68,11 @@ def parse(
     sheet_name: str | None = None,
     period: str | None = None,
 ) -> PolicyParseResult:
-    dataframe = pd.read_excel(path, sheet_name=sheet_name)
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        dataframe = pd.read_csv(path)
+    else:
+        dataframe = pd.read_excel(path, sheet_name=sheet_name)
     dataframe = _normalise_columns(dataframe)
 
     name_column = _find_column(dataframe, ["姓名", "员工", "employee"])
@@ -84,20 +88,26 @@ def parse(
     ot_mult_wd_column = _find_column(dataframe, OT_MULT_WD_COLUMNS)
     ot_mult_we_column = _find_column(dataframe, OT_MULT_WE_COLUMNS)
 
+    target_period = str(period or ws_id or "").strip()
+
     policies: list[dict[str, Any]] = []
     for _, row in dataframe.iterrows():
         employee = str(row.get(name_column) or "").strip()
         if not employee or employee in {"合计", "汇总", "总计"}:
             continue
 
+        declared_period = str(row.get(period_column) or "").strip() if period_column else ""
         snapshot: dict[str, Any] = {
             "ws_id": ws_id,
             "employee_name_norm": name_normalize.normalize(employee),
-            "period_month": str(row.get(period_column) or period or ws_id),
+            "period_month": target_period or str(ws_id),
             "mode": str(row.get(mode_column) or "SALARIED").strip().upper(),
             "raw_snapshot": {k: row.get(k) for k in dataframe.columns},
             "source_sheet": sheet_name,
         }
+
+        if declared_period and declared_period != snapshot["period_month"]:
+            snapshot.setdefault("raw_snapshot", {})["__declared_period__"] = declared_period
 
         if snapshot["mode"] not in {"SALARIED", "HOURLY"}:
             snapshot["mode"] = "SALARIED"
