@@ -15,8 +15,17 @@ def create_app() -> FastAPI:
     api_key = os.getenv("IFLYTEK_API_KEY")
     api_secret = os.getenv("IFLYTEK_API_SECRET")
     if app_id and api_key and api_secret:
-        host = os.getenv("IFLYTEK_OCR_HOST") or "https://webapi.xfyun.cn/v1/service/v1/ocr/recognize_table"
-        client = IFlyTekOCRClient(app_id=app_id, api_key=api_key, api_secret=api_secret, host=host)
+        api_base = os.getenv("IFLYTEK_API_BASE_URL") or "https://api.xf-yun.com"
+        function_id = os.getenv("IFLYTEK_FUNCTION_ID") or "se75ocrbm"
+        request_path = os.getenv("IFLYTEK_REQUEST_PATH")
+        client = IFlyTekOCRClient(
+            app_id=app_id,
+            api_key=api_key,
+            api_secret=api_secret,
+            api_base=api_base,
+            function_id=function_id,
+            request_path=request_path,
+        )
         configure_ocr_client(client)
 
     origins_env = os.getenv("API_CORS_ORIGINS", "")
