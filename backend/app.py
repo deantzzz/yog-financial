@@ -17,14 +17,12 @@ def create_app() -> FastAPI:
     if app_id and api_key and api_secret:
         api_base = os.getenv("IFLYTEK_API_BASE_URL") or "https://cbm01.cn-huabei-1.xf-yun.com"
         function_id = os.getenv("IFLYTEK_FUNCTION_ID") or "se75ocrbm"
-        request_path = os.getenv("IFLYTEK_REQUEST_PATH")
         client = IFlyTekOCRClient(
             app_id=app_id,
             api_key=api_key,
             api_secret=api_secret,
             api_base=api_base,
             function_id=function_id,
-            request_path=request_path,
         )
         configure_ocr_client(client)
 
