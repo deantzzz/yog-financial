@@ -477,7 +477,7 @@ export default function Home() {
             </div>
           ) : loadingProgress && !progress ? (
             <p className="text-sm text-slate-500">正在加载流程状态…</p>
-          ) : currentStep ? (
+          ) : currentStep && progress ? (
             <StepDetail
               step={currentStep}
               workspaceId={selectedWorkspace}
