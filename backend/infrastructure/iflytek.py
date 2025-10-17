@@ -29,7 +29,7 @@ class IFlyTekOCRClient:
         api_key: str,
         api_secret: str,
         *,
-        api_base: str = "https://api.xf-yun.com",
+        api_base: str = "https://cbm01.cn-huabei-1.xf-yun.com",
         function_id: str = "se75ocrbm",
         request_path: str | None = None,
         timeout: float = 30.0,
@@ -43,7 +43,11 @@ class IFlyTekOCRClient:
         self._api_key = api_key
         self._api_secret = api_secret
         self._host = parsed.netloc
-        self._request_path = request_path or f"/v1/private/{function_id}"
+
+        base_path = (request_path or parsed.path) or f"/v1/private/{function_id}"
+        if not base_path.startswith("/"):
+            base_path = f"/{base_path}"
+        self._request_path = base_path
         self._request_url = f"{parsed.scheme}://{parsed.netloc}{self._request_path}"
         self._client = http_client or httpx.Client(timeout=timeout)
         self._owns_client = http_client is None
@@ -54,7 +58,7 @@ class IFlyTekOCRClient:
     def _build_auth_query(self) -> dict[str, str]:
         """Construct the query parameters required for authenticated calls."""
 
-        date = format_datetime(datetime.now(timezone.utc))
+        date = format_datetime(datetime.now(timezone.utc), usegmt=True)
         request_line = f"POST {self._request_path} HTTP/1.1"
         signature_origin = f"host: {self._host}\ndate: {date}\n{request_line}"
 

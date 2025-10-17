@@ -49,7 +49,7 @@ def test_extract_text_parses_tables(tmp_path, monkeypatch):
         captured["url"] = str(request.url)
         captured["body"] = json.loads(request.content.decode("utf-8"))
         assert request.url.params["authorization"] == "AUTH"
-        assert request.url.params["host"] == "api.xf-yun.com"
+        assert request.url.params["host"] == "cbm01.cn-huabei-1.xf-yun.com"
         assert request.url.params["date"] == "Wed, 11 Aug 2021 06:55:18 GMT"
         return httpx.Response(200, json=response_body)
 
@@ -62,7 +62,7 @@ def test_extract_text_parses_tables(tmp_path, monkeypatch):
         "_build_auth_query",
         lambda: {
             "authorization": "AUTH",
-            "host": "api.xf-yun.com",
+            "host": "cbm01.cn-huabei-1.xf-yun.com",
             "date": "Wed, 11 Aug 2021 06:55:18 GMT",
         },
     )

@@ -15,7 +15,7 @@ def create_app() -> FastAPI:
     api_key = os.getenv("IFLYTEK_API_KEY")
     api_secret = os.getenv("IFLYTEK_API_SECRET")
     if app_id and api_key and api_secret:
-        api_base = os.getenv("IFLYTEK_API_BASE_URL") or "https://api.xf-yun.com"
+        api_base = os.getenv("IFLYTEK_API_BASE_URL") or "https://cbm01.cn-huabei-1.xf-yun.com"
         function_id = os.getenv("IFLYTEK_FUNCTION_ID") or "se75ocrbm"
         request_path = os.getenv("IFLYTEK_REQUEST_PATH")
         client = IFlyTekOCRClient(
