@@ -325,6 +325,43 @@ def test_workspace_progress_tracking(client, tmp_path):
     assert payroll_step["status"] == "completed"
 
 
+def test_official_templates_pipeline(client):
+    response = client.post("/api/workspaces", json={"month": "2025-10"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    templates_dir = Path(__file__).resolve().parents[1] / "samples" / "templates"
+    uploads = [
+        ("timesheet_personal_template.csv", "text/csv"),
+        ("timesheet_aggregate_template.csv", "text/csv"),
+        ("roster_sheet_template.csv", "text/csv"),
+        ("policy_sheet_template.csv", "text/csv"),
+    ]
+
+    for filename, content_type in uploads:
+        file_path = templates_dir / filename
+        with file_path.open("rb") as fp:
+            upload = client.post(
+                f"/api/workspaces/{ws_id}/upload",
+                files={"file": (filename, fp, content_type)},
+            )
+        assert upload.status_code == 200
+
+    calc = client.post(
+        f"/api/workspaces/{ws_id}/calc",
+        json={"period": "2025-10"},
+    )
+    assert calc.status_code == 200
+    items = calc.json()["items"]
+    assert items
+
+    net_values = [Decimal(str(item["net_pay"])) for item in items]
+    base_values = [Decimal(str(item["base_pay"])) for item in items]
+
+    assert all(value != Decimal("0") for value in net_values)
+    assert all(value > Decimal("0") for value in base_values)
+
+
 def test_policy_roster_merge_preserves_base_amount(client, tmp_path):
     response = client.post("/api/workspaces", json={"month": "2025-03"})
     assert response.status_code == 200

@@ -4,7 +4,7 @@
 
 ## 官方模板
 
-`samples/templates/` 目录内提供以下模板：
+`samples/templates/` 目录内提供以下模板（直接覆盖最常见的 4 种上传场景）：
 
 | 模板 | 上传 `schema` | 生成数据 | 关键字段 | 文件路径 |
 | --- | --- | --- | --- | --- |
@@ -14,6 +14,8 @@
 | `roster_sheet_template.csv` | `roster_sheet` | `policy` | 入离职日期、社保个人/公司比例、基数上下限 | `samples/templates/roster_sheet_template.csv` |
 
 > 直接下载或复制上述 CSV 内容，即可在前端的「上传资料」步骤中进行调试。所有模板均采用 UTF-8 编码，兼容 Excel、WPS、Numbers 等常见表格工具。
+
+完成 timesheet_personal →（可选）timesheet_aggregate → roster_sheet → policy_sheet 的四步上传后，系统会自动生成标准化的事实与口径记录，不需要再额外上传 `facts` 或 `policy` CSV。所有模板中的“月份”字段仅作备注，计算时会以当前工作区的月份为准；若结果仍为 0，可重新检查薪酬口径中的“基本工资/时薪”列以及 roster_sheet 是否填写社保比例。
 
 ## 示例数据
 

@@ -70,6 +70,37 @@ const JOB_STATUS_COLORS: Record<string, string> = {
   error: 'bg-red-100 text-red-700'
 };
 
+const TEMPLATE_GUIDE_BY_STEP: Record<
+  string,
+  Array<{ label: string; schema: string; description: string; optional?: boolean }>
+> = {
+  upload_timesheets: [
+    {
+      label: '员工工时明细',
+      schema: 'timesheet_personal',
+      description: '逐日或逐班次的打卡明细，系统会汇总为标准化工时事实记录。'
+    },
+    {
+      label: '班组工时汇总（可选）',
+      schema: 'timesheet_aggregate',
+      description: '按部门/班组的月度汇总，用于交叉核对确认工时。',
+      optional: true
+    }
+  ],
+  upload_policy: [
+    {
+      label: '员工花名册',
+      schema: 'roster_sheet',
+      description: '提供社保个人/公司比例与基数范围，自动合并到口径快照中。'
+    },
+    {
+      label: '薪酬口径与参数',
+      schema: 'policy_sheet',
+      description: '填写基本工资或时薪、加班费率、津贴扣款等字段，生成完整薪酬口径。'
+    }
+  ]
+};
+
 const currencyFormatter = new Intl.NumberFormat('zh-CN', {
   style: 'currency',
   currency: 'CNY',
@@ -380,6 +411,27 @@ export default function Home() {
         }}
       />
 
+      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600 shadow-sm">
+        <h2 className="text-base font-semibold text-slate-900">四个模板即可完成工资计算</h2>
+        <ol className="mt-3 list-decimal space-y-2 pl-5">
+          <li>
+            在「上传工时与计薪基础」中上传 <span className="font-medium">员工工时明细</span>{' '}
+            (timesheet_personal)；如有汇总表，可追加 <span className="font-medium">班组工时汇总</span>{' '}
+            (timesheet_aggregate)。
+          </li>
+          <li>
+            在「上传口径与花名册」中上传 <span className="font-medium">员工花名册</span>{' '}
+            (roster_sheet) 与 <span className="font-medium">薪酬口径与参数</span>{' '}
+            (policy_sheet)，系统会自动合并花名册中的社保比例。
+          </li>
+          <li>完成以上上传后即可触发计算，无需再额外准备 facts/policy CSV。</li>
+          <li>若结果为 0，请确认薪酬口径中已填写基本工资/时薪，并核对花名册的社保比例。</li>
+        </ol>
+        <p className="mt-3 text-xs text-slate-500">
+          模板示例位于 <code>samples/templates/</code>，复制后即可直接调试。
+        </p>
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-[320px,1fr]">
         <aside className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -597,6 +649,7 @@ function StepDetail({
   }
 
   if (step.id === 'upload_timesheets') {
+    const guideItems = TEMPLATE_GUIDE_BY_STEP[step.id] ?? [];
     return (
       <div className="space-y-5 text-sm text-slate-600">
         <div>
@@ -604,6 +657,23 @@ function StepDetail({
           <p>优先上传 timesheet_personal 模板的个人工时明细，可选上传 timesheet_aggregate 汇总表以便核对。</p>
         </div>
         <RequirementList items={step.requirements} />
+        {guideItems.length > 0 && (
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-xs text-slate-600">
+            <h3 className="text-sm font-semibold text-blue-700">准备这些文件即可</h3>
+            <ul className="mt-2 space-y-1">
+              {guideItems.map((item) => (
+                <li key={item.schema}>
+                  <span className="font-medium text-slate-800">{item.label}</span>
+                  <span className="text-slate-500"> · schema: {item.schema}</span>
+                  <span className="text-slate-500"> · {item.description}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-slate-500">
+              系统会把这些表格自动转写为事实（facts）记录，无需另行上传 `facts` CSV。
+            </p>
+          </div>
+        )}
         <UploadBox
           fileInputKey={fileInputKey}
           selectedFile={selectedFile}
@@ -627,6 +697,7 @@ function StepDetail({
   }
 
   if (step.id === 'upload_policy') {
+    const guideItems = TEMPLATE_GUIDE_BY_STEP[step.id] ?? [];
     return (
       <div className="space-y-5 text-sm text-slate-600">
         <div>
@@ -634,6 +705,24 @@ function StepDetail({
           <p>上传 roster_sheet 花名册与 policy_sheet 薪酬口径，补齐社保个税及津贴扣款参数。</p>
         </div>
         <RequirementList items={step.requirements} />
+        {guideItems.length > 0 && (
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-xs text-slate-600">
+            <h3 className="text-sm font-semibold text-blue-700">完成这两份模板即可</h3>
+            <ul className="mt-2 space-y-1">
+              {guideItems.map((item) => (
+                <li key={item.schema}>
+                  <span className="font-medium text-slate-800">{item.label}</span>
+                  <span className="text-slate-500"> · schema: {item.schema}</span>
+                  <span className="text-slate-500"> · {item.description}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-slate-500">
+              roster_sheet 与 policy_sheet 会自动合并成同一条口径快照，确保薪酬基础与社保比例同时生效，无需再上传 `policy` CSV；若模板中的“月份”
+              与工作区不同，系统会以当前工作区月份为准并在快照中保留原始值，避免出现结果为 0 的情况。
+            </p>
+          </div>
+        )}
         <UploadBox
           fileInputKey={fileInputKey}
           selectedFile={selectedFile}
@@ -706,6 +795,7 @@ function StepDetail({
   }
 
   if (step.id === 'run_payroll') {
+    const zeroNet = calcResults.length > 0 && calcResults.every((row) => Math.abs(row.net_pay) < 0.005);
     return (
       <div className="space-y-5 text-sm text-slate-600">
         <div>
@@ -755,6 +845,16 @@ function StepDetail({
             </Link>
           </div>
           {calcMessage && <p className="text-xs text-slate-500">{calcMessage}</p>}
+          {zeroNet && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+              <p>检测到本次所有员工的实发金额为 0，通常由以下原因造成：</p>
+              <ul className="mt-2 list-disc space-y-1 pl-4">
+                <li>薪酬口径模板未填写基本工资或时薪；</li>
+                <li>花名册未上传或缺少社保个人比例，导致社保扣款无法计算；</li>
+                <li>工时表缺少确认工时/总工时数据，请检查 timesheet 模板中的数值。</li>
+              </ul>
+            </div>
+          )}
         </div>
         <div className="overflow-x-auto rounded-2xl border border-slate-200">
           <table className="min-w-full divide-y divide-slate-200 text-xs">
