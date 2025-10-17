@@ -11,6 +11,19 @@ export type WorkspaceOverview = {
   ws_id: string;
   month: string;
   files: WorkspaceJob[];
+  documents: WorkspaceDocument[];
+};
+
+export type WorkspaceDocument = {
+  document_id: string;
+  source_file: string;
+  ocr_text: string;
+  ocr_confidence: number | null;
+  ocr_table: string[][];
+  ocr_metadata: Record<string, unknown>;
+  review_status: string;
+  image_url: string;
+  updated_at?: string;
 };
 
 export type WorkspaceSummary = {
@@ -60,12 +73,57 @@ export type WorkspaceProgress = {
   };
 };
 
+function parseDocuments(wsId: string, value: unknown): WorkspaceDocument[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => {
+    const record = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
+    const documentId = String(record.document_id ?? record.ingest_job_id ?? '');
+    const rawConfidence = record.ocr_confidence;
+    let confidence: number | null = null;
+    if (typeof rawConfidence === 'number' && Number.isFinite(rawConfidence)) {
+      confidence = rawConfidence;
+    } else if (typeof rawConfidence === 'string') {
+      const parsed = Number(rawConfidence);
+      confidence = Number.isFinite(parsed) ? parsed : null;
+    }
+
+    const tableRaw = Array.isArray(record.ocr_table) ? (record.ocr_table as unknown[]) : [];
+    const table: string[][] = tableRaw
+      .map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? '')) : []))
+      .filter((row) => row.length > 0);
+
+    const imageUrl = typeof record.image_url === 'string' ? record.image_url : `/api/workspaces/${wsId}/documents/${documentId}/image`;
+
+    return {
+      document_id: documentId,
+      source_file: String(record.source_file ?? ''),
+      ocr_text: String(record.ocr_text ?? ''),
+      ocr_confidence: confidence,
+      ocr_table: table.length > 0 ? table : [['']],
+      ocr_metadata: (typeof record.ocr_metadata === 'object' && record.ocr_metadata !== null
+        ? (record.ocr_metadata as Record<string, unknown>)
+        : {}),
+      review_status: typeof record.review_status === 'string' ? record.review_status : 'pending',
+      image_url: imageUrl,
+      updated_at: typeof record.updated_at === 'string' ? record.updated_at : undefined
+    } satisfies WorkspaceDocument;
+  });
+}
+
 export async function fetchWorkspaceOverview(wsId: string): Promise<WorkspaceOverview> {
-  const data = await apiFetch<{ ws_id?: string; month?: string; files?: WorkspaceJob[] }>(`/api/workspaces/${wsId}/files`);
+  const data = await apiFetch<{
+    ws_id?: string;
+    month?: string;
+    files?: WorkspaceJob[];
+    documents?: unknown;
+  }>(`/api/workspaces/${wsId}/files`);
   return {
     ws_id: data.ws_id ?? wsId,
     month: data.month ?? wsId,
-    files: Array.isArray(data.files) ? data.files : []
+    files: Array.isArray(data.files) ? data.files : [],
+    documents: parseDocuments(wsId, data.documents)
   };
 }
 
@@ -124,6 +182,39 @@ export async function uploadWorkspaceFile(wsId: string, file: File): Promise<{ j
   }
 
   return (await response.json()) as { job_id: string; status: string };
+}
+
+export type UpdateDocumentPayload = {
+  ocrTable?: string[][];
+  ocrText?: string;
+  reviewStatus?: string;
+};
+
+export async function updateWorkspaceDocument(
+  wsId: string,
+  documentId: string,
+  payload: UpdateDocumentPayload
+): Promise<WorkspaceDocument> {
+  const body: Record<string, unknown> = {};
+  if (payload.ocrTable) {
+    body.ocr_table = payload.ocrTable;
+  }
+  if (payload.ocrText !== undefined) {
+    body.ocr_text = payload.ocrText;
+  }
+  if (payload.reviewStatus) {
+    body.review_status = payload.reviewStatus;
+  }
+
+  const data = await apiFetch<Record<string, unknown>>(`/api/workspaces/${wsId}/documents/${documentId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body)
+  });
+  const parsed = parseDocuments(wsId, [data]);
+  if (!parsed.length) {
+    throw new Error('文档返回格式异常');
+  }
+  return parsed[0];
 }
 
 type FactApiRecord = {

@@ -4,21 +4,29 @@ import { useState } from 'react';
 
 import {
   WorkspaceJob,
+  WorkspaceDocument,
   fetchWorkspaceOverview,
-  uploadWorkspaceFile
+  uploadWorkspaceFile,
+  updateWorkspaceDocument
 } from '../../features/workspaces/services';
+import OcrReviewDialog from '../../components/OcrReviewDialog';
 
 export default function UploadPage() {
   const [workspace, setWorkspace] = useState('2025-01');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [files, setFiles] = useState<WorkspaceJob[]>([]);
+  const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<WorkspaceDocument | null>(null);
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   const refreshFiles = async (ws: string) => {
     try {
       const overview = await fetchWorkspaceOverview(ws);
       setFiles(overview.files ?? []);
+      setDocuments(overview.documents ?? []);
       setMessage(null);
     } catch (error) {
       setMessage(error instanceof Error ? `加载失败：${error.message}` : '加载失败');
@@ -46,6 +54,34 @@ export default function UploadPage() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openReview = (document: WorkspaceDocument) => {
+    setSelectedDocument(document);
+    setReviewError(null);
+  };
+
+  const closeReview = () => {
+    setSelectedDocument(null);
+    setReviewError(null);
+  };
+
+  const handleConfirmReview = async (documentId: string, table: string[][]) => {
+    setReviewSaving(true);
+    setReviewError(null);
+    try {
+      const updated = await updateWorkspaceDocument(workspace, documentId, {
+        ocrTable: table,
+        reviewStatus: 'confirmed'
+      });
+      setDocuments((items) => items.map((item) => (item.document_id === updated.document_id ? updated : item)));
+      setMessage('识别结果已保存');
+      setSelectedDocument(null);
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : '保存失败，请稍后再试');
+    } finally {
+      setReviewSaving(false);
     }
   };
 
@@ -123,6 +159,68 @@ export default function UploadPage() {
           </table>
         )}
       </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-medium text-slate-800">OCR 识别任务</h2>
+          <button onClick={() => refreshFiles(workspace)} className="text-sm text-primary hover:text-accent">
+            刷新
+          </button>
+        </div>
+        {documents.length === 0 ? (
+          <p className="text-sm text-slate-500">暂无待审查的识别结果。</p>
+        ) : (
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead>
+              <tr className="bg-slate-100 text-left">
+                <th className="px-3 py-2 font-medium">文件名</th>
+                <th className="px-3 py-2 font-medium">置信度</th>
+                <th className="px-3 py-2 font-medium">审查状态</th>
+                <th className="px-3 py-2 font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {documents.map((document) => (
+                <tr key={document.document_id}>
+                  <td className="px-3 py-2">{document.source_file}</td>
+                  <td className="px-3 py-2 text-slate-600">
+                    {document.ocr_confidence !== null ? document.ocr_confidence.toFixed(2) : '-'}
+                  </td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={`rounded px-2 py-1 text-xs font-medium ${
+                        document.review_status === 'confirmed'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-amber-100 text-amber-700'
+                      }`}
+                    >
+                      {document.review_status === 'confirmed' ? '已确认' : '待审查'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => openReview(document)}
+                      className="text-sm text-primary hover:text-accent"
+                    >
+                      {document.review_status === 'confirmed' ? '查看/调整' : '审查调整'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {selectedDocument && (
+        <OcrReviewDialog
+          document={selectedDocument}
+          onClose={closeReview}
+          onConfirm={(table) => handleConfirmReview(selectedDocument.document_id, table)}
+          saving={reviewSaving}
+          error={reviewError}
+        />
+      )}
     </section>
   );
 }
