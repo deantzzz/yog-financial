@@ -325,6 +325,73 @@ def test_workspace_progress_tracking(client, tmp_path):
     assert payroll_step["status"] == "completed"
 
 
+def test_policy_roster_merge_preserves_base_amount(client, tmp_path):
+    response = client.post("/api/workspaces", json={"month": "2025-03"})
+    assert response.status_code == 200
+    ws_id = response.json()["ws_id"]
+
+    fact_rows = [
+        {
+            "employee_name": "张三",
+            "period_month": "2025-03",
+            "metric_code": "HOUR_TOTAL",
+            "metric_value": 160,
+            "unit": "hour",
+        }
+    ]
+    fact_path = _write_csv(tmp_path, "facts_merge.csv", fact_rows)
+    with fact_path.open("rb") as fp:
+        upload_fact = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("facts_merge.csv", fp, "text/csv")},
+        )
+    assert upload_fact.status_code == 200
+
+    policy_rows = [
+        {
+            "employee_name_norm": "张三",
+            "period_month": "2025-03",
+            "mode": "SALARIED",
+            "base_amount": 10000,
+            "social_security_json": {"employee": 0.0},
+        }
+    ]
+    policy_path = _write_csv(tmp_path, "policy_merge.csv", policy_rows)
+    with policy_path.open("rb") as fp:
+        upload_policy = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("policy_merge.csv", fp, "text/csv")},
+        )
+    assert upload_policy.status_code == 200
+
+    roster_rows = [
+        {
+            "姓名": "张三",
+            "个人比例": 0.08,
+            "公司比例": 0.1,
+            "最低基数": 5000,
+            "最高基数": 20000,
+            "月份": "2025-03",
+        }
+    ]
+    roster_path = _write_csv(tmp_path, "roster_merge.csv", roster_rows)
+    with roster_path.open("rb") as fp:
+        upload_roster = client.post(
+            f"/api/workspaces/{ws_id}/upload",
+            files={"file": ("roster_merge.csv", fp, "text/csv")},
+        )
+    assert upload_roster.status_code == 200
+
+    calc = client.post(
+        f"/api/workspaces/{ws_id}/calc",
+        json={"period": "2025-03", "selected": ["张三"]},
+    )
+    assert calc.status_code == 200
+    item = calc.json()["items"][0]
+    assert Decimal(str(item["base_pay"])) > Decimal("0")
+    assert Decimal(str(item["social_security_personal"])) == Decimal("800.00")
+
+
 def test_timesheet_with_metadata_header_rows(client, tmp_path):
     response = client.post("/api/workspaces", json={"month": "2025-04"})
     assert response.status_code == 200
