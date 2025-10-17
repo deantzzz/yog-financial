@@ -1,34 +1,40 @@
 # 样例与模板说明
 
-仓库不包含任何二进制 Excel 文件，所有演示数据均通过 CSV 模板或脚本即时生成。以下内容帮助你快速找到 roster_sheet 等必备模板，并了解每个字段的含义。
+仓库随附一套最小化的 CSV 模板与示例数据，覆盖流水线当前正式支持的结构。通过这些文件即可快速验证上传 → 解析 → 计算的主流程，无需额外脚本。
 
-## 现成 CSV 模板
+## 官方模板
 
-`samples/templates/` 目录提供了系统支持的四类关键模板：
+`samples/templates/` 目录内提供以下模板（直接覆盖最常见的 4 种上传场景）：
 
-| 模板 | 适用上传节点 | 关键字段 | 文件路径 |
+| 模板 | 上传 `schema` | 生成数据 | 关键字段 | 文件路径 |
+| --- | --- | --- | --- | --- |
+| `timesheet_personal_template.csv` | `timesheet_personal` | `facts` | 姓名、月份、日期、各类工时 | `samples/templates/timesheet_personal_template.csv` |
+| `timesheet_aggregate_template.csv` | `timesheet_aggregate` | `facts` | 姓名、标准工时、加班工时、确认工时 | `samples/templates/timesheet_aggregate_template.csv` |
+| `policy_sheet_template.csv` | `policy_sheet` | `policy` | 薪资模式、月薪/时薪、加班倍率、津贴/扣款、社保配置 | `samples/templates/policy_sheet_template.csv` |
+| `roster_sheet_template.csv` | `roster_sheet` | `policy` | 入离职日期、社保个人/公司比例、基数上下限 | `samples/templates/roster_sheet_template.csv` |
+
+> 直接下载或复制上述 CSV 内容，即可在前端的「上传资料」步骤中进行调试。所有模板均采用 UTF-8 编码，兼容 Excel、WPS、Numbers 等常见表格工具。
+
+完成 timesheet_personal →（可选）timesheet_aggregate → roster_sheet → policy_sheet 的四步上传后，系统会自动生成标准化的事实与口径记录，不需要再额外上传 `facts` 或 `policy` CSV。所有模板中的“月份”字段仅作备注，计算时会以当前工作区的月份为准；若结果仍为 0，可重新检查薪酬口径中的“基本工资/时薪”列以及 roster_sheet 是否填写社保比例。
+
+## 示例数据
+
+`samples/facts_sample.csv` 与 `samples/policy_sample.csv` 展示了流水线直接接收的两种标准化结构，可作为 API 调试或自动化测试的起点：
+
+| 文件 | 类型 | 关键字段 | 适用场景 |
 | --- | --- | --- | --- |
-| `timesheet_aggregate_template.csv` | 月度工时汇总（timesheet_aggregate） | 姓名、标准工时、加班工时、确认工时 | `samples/templates/timesheet_aggregate_template.csv` |
-| `timesheet_personal_template.csv` | 个人打卡明细（timesheet_personal） | 姓名、月份、日期、各类工时 | `samples/templates/timesheet_personal_template.csv` |
-| `policy_sheet_template.csv` | 薪酬口径（policy_sheet） | 月薪、加班费率、社保比例、津贴/扣款 | `samples/templates/policy_sheet_template.csv` |
-| `roster_sheet_template.csv` | 花名册/社保（roster_sheet） | 社保个人/公司比例、基数上下限、入离职信息 | `samples/templates/roster_sheet_template.csv` |
+| `samples/facts_sample.csv` | `facts` 事实数据 | `employee_name`、`period_month`、`metric_code`、`metric_value`、`unit`、`confidence` | 直接模拟工时/金额等事实指标的批量上传 |
+| `samples/policy_sample.csv` | `policy` 口径数据 | `employee_name_norm`、`period_month`、`mode`、`base_amount`、`ot_*`、`social_security_json` | 演示口径快照的最小字段组合，适合规则引擎调试 |
 
-> 使用方式：直接下载或复制 CSV 内容，即可上传到前端「上传资料」步骤进行验证。所有模板均采用 UTF-8 编码，兼容 Excel、WPS、Numbers 等常见表格工具。
+> 如果需要扩展字段，可在复制这些示例后按业务需求增加列名；解析器会保留未知列供后续审计。JSON 字段示例采用转义双引号，便于在表格软件中直接编辑。
 
-## 脚本生成带示例数据的 CSV
+### 与上传模板的关系
 
-如果希望快速生成带有示例记录的模板，可使用 `scripts/` 下的辅助脚本。脚本默认写出 UTF-8 编码的 CSV 文件，你可以通过 `--output` 参数指定输出位置。
+- 上传模板会在后台解析后生成与 `facts`/`policy` 相同的结构（参见 `backend/workers/pipeline.py` 中对 `_ingest_fact_rows`、`_ingest_policy_rows` 的调用）。
+- 若已有外部系统输出标准化字段，可直接上传 `facts`/`policy`，系统会沿用同一套校验与规则引擎流程，无需再从 Excel 解析。
 
-```bash
-python scripts/make_sample_timesheet.py --month 2025-01 --output /tmp/timesheet_aggregate.csv
-python scripts/make_sample_policy.py --month 2025-01 --output /tmp/policy_sheet.csv
-python scripts/make_sample_roster.py --month 2025-01 --output /tmp/roster_sheet.csv
-```
+## 自定义建议
 
-生成的 CSV 可直接用于工作区上传调试，也可根据需要复制到自定义目录进行编辑。脚本会额外写入月份信息，帮助你在多工作区场景下区分文件来源。
-
-## FAQ
-
-- **可以继续上传 Excel 吗？** 可以。后端解析器同时兼容 CSV 与常见 Excel 模板，因此你仍可在外部工具中导出 `.xlsx` 再上传。
-- **如何新增字段？** 复制模板后即可按需增加列，解析器会自动忽略未知字段，只要保留表头关键字即可。
-- **脚本是否依赖额外库？** 不需要。所有示例脚本仅使用 Python 标准库即可运行。
+- 若业务需要新增字段，可在复制模板后按需扩展列名；解析器会忽略未知列，只要保留关键字段即可。
+- 模板内的演示数据仅用于提示字段含义，可在上传前替换为真实数值或留空。
+- 若需批量生成数据，可在外部脚本或表格软件中引用这些表头；系统无需额外的生成脚本即可识别。

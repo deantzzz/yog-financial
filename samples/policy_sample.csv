@@ -1,2 +1,3 @@
-employee_name_norm,period_month,mode,base_amount,ot_weekday_rate,ot_weekend_rate,social_security_json
-张三,2025-01,SALARIED,10000,50,80,"{""employee"":0.1}"
+employee_name_norm,period_month,mode,base_amount,ot_weekday_rate,ot_weekend_rate,allowance_meal,social_security_json
+张三,2025-01,SALARIED,10000,50,80,300,"{""employee"":0.10,""employer"":0.16}"
+李四,2025-01,HOURLY,0,30,45,,"{""employee"":0.08,""employer"":0.12}"

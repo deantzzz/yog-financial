@@ -8,6 +8,7 @@ from typing import Iterable
 import yaml
 from backend.application import get_workspace_service
 from backend.core.name_normalize import normalize
+from backend.core.policy_utils import merge_policy_snapshots
 from backend.core.schema import FactRecord, PayrollResultModel, PolicySnapshot
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
@@ -42,8 +43,6 @@ def _load_tax_table() -> dict:
 
 
 TAX_TABLE = _load_tax_table()
-
-
 def _aggregate_facts(records: Iterable[FactRecord]) -> AggregatedFacts:
     agg = AggregatedFacts()
     for record in records:
@@ -109,7 +108,7 @@ def calculate_period(ws_id: str, period: str, employees: list[str] | None = None
     policy_by_employee: dict[str, PolicySnapshot] = {}
     for snapshot in policy_rows:
         key = normalize(snapshot.employee_name_norm)
-        policy_by_employee[key] = snapshot
+        policy_by_employee[key] = merge_policy_snapshots(policy_by_employee.get(key), snapshot)
 
     results: list[PayrollResult] = []
     for key, records in facts_by_employee.items():

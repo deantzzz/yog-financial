@@ -34,6 +34,14 @@ def _find_column(dataframe: pd.DataFrame, keywords: list[str]) -> str | None:
 def _safe_decimal(value: Any) -> Decimal | None:
     if value is None or value == "":
         return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.endswith("%"):
+            try:
+                return Decimal(stripped.rstrip("%")) / Decimal("100")
+            except Exception:  # pragma: no cover - invalid percent
+                return None
+        value = stripped
     try:
         decimal_value = Decimal(str(value))
     except Exception:  # pragma: no cover - invalid number
