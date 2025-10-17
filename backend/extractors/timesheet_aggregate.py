@@ -60,29 +60,35 @@ def parse(
 ) -> AggregateParseResult:
     period_month = period or ws_id
 
-    # ``header=None`` allows us to inspect workbooks where the actual header row
-    # is preceded by metadata rows.  This mirrors the behaviour seen in many
-    # customer supplied spreadsheets.
-    raw_frame = pd.read_excel(path, sheet_name=sheet_name, header=None)
-    raw_frame = raw_frame.dropna(how="all")
-    header_index: int | None = None
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        dataframe = pd.read_csv(path)
+        dataframe = dataframe.dropna(how="all")
+        dataframe = _normalise_columns(dataframe)
+    else:
+        # ``header=None`` allows us to inspect workbooks where the actual header row
+        # is preceded by metadata rows.  This mirrors the behaviour seen in many
+        # customer supplied spreadsheets.
+        raw_frame = pd.read_excel(path, sheet_name=sheet_name, header=None)
+        raw_frame = raw_frame.dropna(how="all")
+        header_index: int | None = None
 
-    for idx, row in raw_frame.iterrows():
-        values = ["" if pd.isna(cell) else str(cell).strip() for cell in row]
-        if not any(values):
-            continue
-        if any(keyword in value for value in values for keyword in ["姓名", "员工", "name"]):
-            header_index = int(idx)
-            break
+        for idx, row in raw_frame.iterrows():
+            values = ["" if pd.isna(cell) else str(cell).strip() for cell in row]
+            if not any(values):
+                continue
+            if any(keyword in value for value in values for keyword in ["姓名", "员工", "name"]):
+                header_index = int(idx)
+                break
 
-    if header_index is None:
-        return AggregateParseResult(facts=[])
+        if header_index is None:
+            return AggregateParseResult(facts=[])
 
-    header_position = raw_frame.index.get_loc(header_index)
-    header_values = ["" if pd.isna(cell) else str(cell).strip() for cell in raw_frame.iloc[header_position]]
-    dataframe = raw_frame.iloc[header_position + 1 :].copy()
-    dataframe.columns = header_values
-    dataframe = _normalise_columns(dataframe)
+        header_position = raw_frame.index.get_loc(header_index)
+        header_values = ["" if pd.isna(cell) else str(cell).strip() for cell in raw_frame.iloc[header_position]]
+        dataframe = raw_frame.iloc[header_position + 1 :].copy()
+        dataframe.columns = header_values
+        dataframe = _normalise_columns(dataframe)
 
     name_column = _find_column(dataframe, ["姓名", "员工", "name"])
     if not name_column:

@@ -152,7 +152,49 @@ class PipelineWorker:
         template = detect.detect(payload.file_path)
         if suffix == ".csv":
             copy_into_zone(payload.ws_id, payload.file_path, "csv")
+            if template.schema == "timesheet_personal":
+                result = personal_parser.parse(
+                    payload.file_path,
+                    ws_id=payload.ws_id,
+                    sheet_name=None,
+                    period=payload.ws_id,
+                )
+                if result.facts:
+                    self._ingest_fact_records(payload, job_id, result.facts, template.schema)
+                    return
+            elif template.schema == "timesheet_aggregate":
+                result = aggregate_parser.parse(
+                    payload.file_path,
+                    ws_id=payload.ws_id,
+                    sheet_name=None,
+                    period=payload.ws_id,
+                )
+                if result.facts:
+                    self._ingest_fact_records(payload, job_id, result.facts, template.schema)
+                    return
+            elif template.schema == "policy_sheet":
+                result = policy_parser.parse(
+                    payload.file_path,
+                    ws_id=payload.ws_id,
+                    sheet_name=None,
+                    period=payload.ws_id,
+                )
+                if result.policies:
+                    self._ingest_policy_records(payload, job_id, result.policies, template.schema)
+                    return
+            elif template.schema == "roster_sheet":
+                result = roster_parser.parse(
+                    payload.file_path,
+                    ws_id=payload.ws_id,
+                    sheet_name=None,
+                    period=payload.ws_id,
+                )
+                if result.policies:
+                    self._ingest_policy_records(payload, job_id, result.policies, template.schema)
+                    return
+
             self._ingest_csv(payload, job_id)
+            return
         elif suffix == ".json":
             copy_into_zone(payload.ws_id, payload.file_path, "json")
             self._ingest_json(payload, job_id)

@@ -258,18 +258,24 @@ def test_workspace_progress_tracking(client, tmp_path):
     assert any(req["id"] == "timesheet_detail" and req["status"] == "completed" for req in ts_requirements)
 
     # 上传 roster_sheet 模板
-    roster_wb = Workbook()
-    roster_ws = roster_wb.active
-    roster_ws.title = "花名册"
-    roster_ws.append(["姓名", "个人比例", "公司比例", "最低基数", "最高基数"])
-    roster_ws.append(["张三", 0.08, 0.1, 5000, 15000])
-    roster_path = tmp_path / "roster.xlsx"
-    roster_wb.save(roster_path)
+    roster_path = _write_csv(
+        tmp_path,
+        "roster.csv",
+        [
+            {
+                "姓名": "张三",
+                "个人比例": 0.08,
+                "公司比例": 0.1,
+                "最低基数": 5000,
+                "最高基数": 15000,
+            }
+        ],
+    )
 
     with roster_path.open("rb") as fp:
         upload_roster = client.post(
             f"/api/workspaces/{ws_id}/upload",
-            files={"file": ("roster.xlsx", fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            files={"file": ("roster.csv", fp, "text/csv")},
         )
     assert upload_roster.status_code == 200
 
