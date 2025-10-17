@@ -49,19 +49,8 @@ class DetectedTemplate:
     requires_ocr: bool = False
 
 
-def _normalise(text: str | int | float | None) -> str:
-    if text is None:
-        return ""
-    return str(text).strip()
-
-
 def _column_tokens(columns: Iterable[str]) -> list[str]:
     return [col.strip().lower() for col in columns if isinstance(col, str)]
-
-
-def _contains_keywords(columns: Iterable[str], keywords: Iterable[str]) -> bool:
-    lowered = _column_tokens(columns)
-    return any(keyword.lower() in col for col in lowered for keyword in keywords)
 
 
 def _detect_from_tokens(tokens: Iterable[str]) -> str | None:

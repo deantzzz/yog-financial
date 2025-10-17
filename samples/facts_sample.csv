@@ -1,3 +1,0 @@
-employee_name,period_month,metric_code,metric_value,unit
-张三,2025-01,HOUR_TOTAL,168,hour
-张三,2025-01,AMOUNT_BASE,10000,currency

@@ -120,7 +120,7 @@ repo/
 
 4. 访问 `http://127.0.0.1:8000/docs` 查看自动生成的 OpenAPI 文档。
 
-> 提示：可使用 `samples/` 目录中的指引脚本即时生成示例 CSV，或直接复制模板目录下的现成文件，测试上传、解析与计算流程。
+> 提示：仓库提供了 `samples/templates/` 目录作为官方模板，可直接复制后填充真实数据，用于验证上传、解析与计算流程。
 
 ## 前端控制台
 
@@ -187,14 +187,16 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
 
 ## 示例数据与模板格式
 
-`samples/` 目录内提供了生成脚本，可用于快速体验：
-
-- `facts_sample.csv`：包含 `employee_name`、`period_month`、`metric_code`、`metric_value` 等字段，上传后会生成事实记录；
-- `policy_sample.csv`：包含 `employee_name_norm`、`mode`、`base_amount`、`ot_*` 等字段，上传后会生成口径快照；
-- `scripts/make_sample_timesheet.py`：即时生成“月度工时汇总确认表”结构的 Excel；
-- `scripts/make_sample_policy.py`：即时生成薪资口径 Excel，避免将二进制文件提交到仓库。
-
 流水线当前支持以下格式：
+
+| 模板/数据类型 | 适用上传节点 | 关键字段示例 |
+| --- | --- | --- |
+| `timesheet_aggregate` 月度工时汇总 | `timesheet_aggregate` | 姓名、标准工时、加班工时、确认工时、月份 |
+| `timesheet_personal` 个人打卡明细 | `timesheet_personal` | 姓名、月份、日期、各类工时、备注 |
+| `policy_sheet` 薪酬口径 | `policy_sheet` | 员工姓名、薪资模式、月薪/时薪、各类加班倍率、津贴/扣款、社保配置 |
+| `roster_sheet` 花名册/社保 | `roster_sheet` | 入离职日期、社保个人/公司比例、基数上下限、员工编码 |
+| `facts` 事实数据 | `facts` | `employee_name`、`period_month`、`metric_code`、`metric_value`、自定义辅助字段 |
+| `policy` 口径数据 | `policy` | `employee_name_norm`、`period_month`、`mode`、金额/倍率字段 |
 
 - **事实数据 CSV/JSON**：必须包含 `employee_name`、`period_month`、`metric_code`、`metric_value`，可选列会自动透传至审计字段；
 - **口径数据 CSV/JSON**：必须包含 `employee_name_norm`、`period_month`、`mode`，其余金额/倍率字段将自动转换为 `Decimal`；
@@ -202,6 +204,8 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
 - **Excel 工资口径模板**：识别“基本工资/时薪、加班倍率/费率、津贴/扣款、社保比例”等列并生成口径快照；
 - **Excel 名册/社保模板**：提取社保个人/公司比例与基数上下限，补充到口径快照；
 - **其他类型文件**：会被安全存储在 `raw/` 目录。若模板识别失败，将启用启发式 Excel 解析器提取可能的姓名、工时和金额字段；若仍无法解析，则生成占位记录提示人工介入。
+
+> 样例目录位于 `samples/`。查阅 `samples/README.md` 可了解每种模板的字段释义，并按照实际业务扩展列名或补充额外字段。
 
 如需扩展更多模板或解析器，可在 `backend/workers/pipeline.py` 中添加新的探测与解析逻辑，或编写专用的 extractor 模块。
 

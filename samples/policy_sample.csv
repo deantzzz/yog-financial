@@ -1,2 +1,0 @@
-employee_name_norm,period_month,mode,base_amount,ot_weekday_rate,ot_weekend_rate,social_security_json
-张三,2025-01,SALARIED,10000,50,80,"{""employee"":0.1}"
