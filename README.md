@@ -205,6 +205,8 @@ Next.js 默认以 `NEXT_PUBLIC_API_BASE_URL` 指向 FastAPI 服务（默认 `htt
 - **Excel 名册/社保模板**：提取社保个人/公司比例与基数上下限，补充到口径快照；
 - **其他类型文件**：会被安全存储在 `raw/` 目录。若模板识别失败，将启用启发式 Excel 解析器提取可能的姓名、工时和金额字段；若仍无法解析，则生成占位记录提示人工介入。
 
+> 若希望直接验证标准化后的事实与口径入库流程，可在 `samples/` 目录中找到 `facts_sample.csv` 与 `policy_sample.csv`，复制后上传即可。
+
 > 样例目录位于 `samples/`。查阅 `samples/README.md` 可了解每种模板的字段释义，并按照实际业务扩展列名或补充额外字段。
 
 如需扩展更多模板或解析器，可在 `backend/workers/pipeline.py` 中添加新的探测与解析逻辑，或编写专用的 extractor 模块。
