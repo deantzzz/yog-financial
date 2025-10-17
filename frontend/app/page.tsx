@@ -196,6 +196,11 @@ export default function Home() {
     }
   }, [selectedWorkspace]);
 
+  useEffect(() => {
+    setCalcResults([]);
+    setCalcMessage(null);
+  }, [selectedWorkspace]);
+
   const stepperData = progress
     ? progress.steps.map((step) => ({
         id: step.id,
@@ -290,8 +295,20 @@ export default function Home() {
         .split(',')
         .map((item) => item.trim())
         .filter(Boolean);
-      await triggerPayrollCalculation(selectedWorkspace, { period: calcPeriod, selected: selectedEmployees });
-      setCalcMessage('计算任务已执行，稍后可刷新结果');
+      const response = await triggerPayrollCalculation(selectedWorkspace, {
+        period: calcPeriod,
+        selected: selectedEmployees
+      });
+      const period = response.period ?? calcPeriod;
+      if (period && period !== calcPeriod) {
+        setCalcPeriod(period);
+      }
+      setCalcResults(response.items);
+      setCalcMessage(
+        response.items.length === 0
+          ? '计算任务已执行，但未生成任何结果，请检查输入数据。'
+          : `计算完成，生成 ${period ?? calcPeriod} 的 ${response.items.length} 条结果。`
+      );
       await loadProgress(selectedWorkspace);
     } catch (error) {
       setCalcMessage(error instanceof Error ? error.message : '触发计算失败');
@@ -310,7 +327,11 @@ export default function Home() {
     try {
       const rows = await fetchPayrollResults(selectedWorkspace, calcPeriod);
       setCalcResults(rows);
-      setCalcMessage(rows.length === 0 ? '暂无结果，请确认计算是否完成。' : `已载入 ${rows.length} 条结果。`);
+      setCalcMessage(
+        rows.length === 0
+          ? '暂无结果，请确认计算是否完成。'
+          : `已载入 ${calcPeriod} 的 ${rows.length} 条结果。`
+      );
       await loadProgress(selectedWorkspace);
     } catch (error) {
       setCalcMessage(error instanceof Error ? error.message : '刷新结果失败');

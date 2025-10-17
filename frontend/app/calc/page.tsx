@@ -20,14 +20,23 @@ export default function CalcPage() {
     setLoading(true);
     setMessage(null);
     try {
-      await triggerPayrollCalculation(workspace, {
+      const response = await triggerPayrollCalculation(workspace, {
         period,
         selected: employees
           .split(',')
           .map((item) => item.trim())
           .filter(Boolean)
       });
-      setMessage('计算任务已触发，可稍后刷新结果列表。');
+      const resultPeriod = response.period ?? period;
+      if (response.period && response.period !== period) {
+        setPeriod(response.period);
+      }
+      setResults(response.items);
+      setMessage(
+        response.items.length === 0
+          ? '计算已完成，但未生成结果，请检查输入数据。'
+          : `计算完成，生成 ${resultPeriod} 的 ${response.items.length} 条结果。`
+      );
     } catch (error) {
       setMessage(error instanceof Error ? `计算失败：${error.message}` : '计算失败');
     } finally {

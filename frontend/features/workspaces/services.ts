@@ -315,32 +315,25 @@ export type PayrollResult = {
   ot_pay: number;
   allowances_sum?: number;
   deductions_sum?: number;
+  social_security_personal?: number;
+  tax?: number;
+  snapshot_hash?: string | null;
+  source_files?: string[];
 };
 
-export async function triggerPayrollCalculation(
-  wsId: string,
-  payload: { period: string; selected?: string[] }
-): Promise<void> {
-  await apiFetch(`/api/workspaces/${wsId}/calc`, {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  });
-}
+const toNumber = (value: unknown): number => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
 
-export async function fetchPayrollResults(wsId: string, period: string): Promise<PayrollResult[]> {
-  const data = await apiFetch<{ items?: Array<Record<string, unknown>> }>(`/api/workspaces/${wsId}/results?period=${encodeURIComponent(period)}`);
-  const toNumber = (value: unknown): number => {
-    if (typeof value === 'number') {
-      return Number.isFinite(value) ? value : 0;
-    }
-    if (typeof value === 'string') {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : 0;
-    }
-    return 0;
-  };
-
-  return (data.items ?? []).map((item) => ({
+function parsePayrollResults(items: Array<Record<string, unknown>>): PayrollResult[] {
+  return items.map((item) => ({
     employee_name_norm: String(item['employee_name_norm'] ?? ''),
     period_month: String(item['period_month'] ?? ''),
     gross_pay: toNumber(item['gross_pay']),
@@ -348,6 +341,37 @@ export async function fetchPayrollResults(wsId: string, period: string): Promise
     base_pay: toNumber(item['base_pay']),
     ot_pay: toNumber(item['ot_pay']),
     allowances_sum: toNumber(item['allowances_sum']),
-    deductions_sum: toNumber(item['deductions_sum'])
+    deductions_sum: toNumber(item['deductions_sum']),
+    social_security_personal: toNumber(item['social_security_personal']),
+    tax: toNumber(item['tax']),
+    snapshot_hash: (item['snapshot_hash'] as string | null | undefined) ?? null,
+    source_files: Array.isArray(item['source_files'])
+      ? item['source_files'].map((value) => String(value))
+      : undefined
   }));
+}
+
+export async function triggerPayrollCalculation(
+  wsId: string,
+  payload: { period: string; selected?: string[] }
+): Promise<{ period: string; items: PayrollResult[] }> {
+  const data = await apiFetch<{ period?: string; items?: Array<Record<string, unknown>> }>(
+    `/api/workspaces/${wsId}/calc`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }
+  );
+
+  const period = typeof data.period === 'string' && data.period ? data.period : payload.period;
+  const items = parsePayrollResults(Array.isArray(data.items) ? data.items : []);
+  return { period, items };
+}
+
+export async function fetchPayrollResults(wsId: string, period: string): Promise<PayrollResult[]> {
+  const data = await apiFetch<{ items?: Array<Record<string, unknown>> }>(
+    `/api/workspaces/${wsId}/results?period=${encodeURIComponent(period)}`
+  );
+
+  return parsePayrollResults(Array.isArray(data.items) ? data.items : []);
 }
