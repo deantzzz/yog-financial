@@ -112,6 +112,18 @@ repo/
    cp .env.example .env
    ```
 
+   ### 讯飞 OCR 配置说明
+
+   若需要启用 iFLYTEK 通用文档识别，请在 `.env` 中填写以下字段（可参考 `.env.example`）：
+
+   - `IFLYTEK_APP_ID`：控制台应用的 **APPID**。
+   - `IFLYTEK_API_KEY`：WebAPI 的 **APIKey**。
+   - `IFLYTEK_API_SECRET`：WebAPI 的 **APISecret**。
+   - `IFLYTEK_API_BASE_URL`：保持为官方提供的域名，例如 `https://cbm01.cn-huabei-1.xf-yun.com`。
+   - `IFLYTEK_FUNCTION_ID`（可选）：模型标识，通用文档识别默认为 `se75ocrbm`，除非开通其他模型无需修改。
+
+   以上四个核心参数即可完成鉴权与调用，无需额外的 `request_path` 配置。客户端会自动按官方文档拼接 `/v1/private/{function_id}` 路径并完成签名。
+
 3. 启动本地开发服务：
 
    ```bash

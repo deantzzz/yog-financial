@@ -166,11 +166,29 @@ def test_unstructured_document_pipeline(client, tmp_path):
     assert document["schema"] == "image_document"
     assert document["requires_ocr"] is True
     assert document["ocr_metadata"]["provider"] == "noop"
+    assert document["document_id"] == document["ingest_job_id"]
+    assert document["review_status"] == "pending"
+    assert document["ocr_table"] == []
 
     ocr_json = tmp_path / ws_id / "ocr" / "receipt.json"
     assert ocr_json.exists()
     payload = json.loads(ocr_json.read_text(encoding="utf-8"))
     assert payload["schema"] == "image_document"
+
+    response = client.get(f"/api/workspaces/{ws_id}/documents")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    doc_id = items[0]["document_id"]
+
+    update = client.put(
+        f"/api/workspaces/{ws_id}/documents/{doc_id}",
+        json={"ocr_table": [["姓名", "金额"], ["张三", "100"]], "review_status": "confirmed"},
+    )
+    assert update.status_code == 200
+    updated = update.json()
+    assert updated["review_status"] == "confirmed"
+    assert updated["ocr_table"][1][1] == "100"
 
 
 def test_excel_templates_pipeline(client, tmp_path):

@@ -31,6 +31,8 @@ class WorkspaceRepository(Protocol):
 
     def list_documents(self, ws_id: str) -> list[dict]: ...
 
+    def update_document(self, ws_id: str, document_id: str, updates: dict) -> dict: ...
+
     def get_policy_snapshot(self, ws_id: str) -> dict[str, object]: ...
 
     def get_fact_snapshot(self, ws_id: str) -> dict[str, object]: ...
@@ -88,11 +90,11 @@ class InMemoryWorkspaceRepository:
         return ws_id
 
     def get_workspace_overview(self, ws_id: str) -> dict[str, object] | None:
-        workspace = self._workspaces.get(ws_id)
-        if workspace is None:
-            return None
+        """Return an overview for the workspace, creating a placeholder if missing."""
+
+        workspace = self._ensure_workspace(ws_id)
         jobs = [asdict(job) for job in workspace.jobs]
-        documents = list(workspace.documents)
+        documents = [dict(item) for item in workspace.documents]
         return {
             "ws_id": workspace.ws_id,
             "month": workspace.month,
@@ -133,11 +135,24 @@ class InMemoryWorkspaceRepository:
 
     def add_document(self, ws_id: str, record: dict) -> None:
         workspace = self._ensure_workspace(ws_id)
+        if "document_id" not in record:
+            record = dict(record)
+            record["document_id"] = record.get("ingest_job_id") or f"doc-{len(workspace.documents) + 1:05d}"
         workspace.documents.append(record)
 
     def list_documents(self, ws_id: str) -> list[dict]:
         workspace = self._workspaces.get(ws_id)
         return list(workspace.documents) if workspace else []
+
+    def update_document(self, ws_id: str, document_id: str, updates: dict) -> dict:
+        workspace = self._ensure_workspace(ws_id)
+        for index, record in enumerate(workspace.documents):
+            if record.get("document_id") == document_id:
+                merged = dict(record)
+                merged.update(updates)
+                workspace.documents[index] = merged
+                return merged
+        raise KeyError(document_id)
 
     def get_policy_snapshot(self, ws_id: str) -> dict[str, object]:
         workspace = self._ensure_workspace(ws_id)

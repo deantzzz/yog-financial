@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import 'react-data-grid/lib/styles.css';
 import { Navigation } from '../components/Navigation';
 
 export const metadata: Metadata = {

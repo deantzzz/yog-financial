@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from backend.application import get_workspace_service
 from backend.core.workspaces import ensure_workspace_root
@@ -80,3 +84,86 @@ async def get_fact_records(
 async def get_policy_snapshot(ws_id: str) -> dict:
     service = get_workspace_service()
     return service.get_policy_snapshot(ws_id)
+
+
+def _serialise_document(ws_id: str, record: dict[str, Any]) -> dict[str, Any]:
+    document = dict(record)
+    document_id = str(document.get("document_id") or document.get("ingest_job_id"))
+    document["document_id"] = document_id
+    document.setdefault("review_status", "pending")
+    document["image_url"] = f"/api/workspaces/{ws_id}/documents/{document_id}/image"
+    return document
+
+
+def _normalise_table(value: Any) -> list[list[str]]:
+    table: list[list[str]] = []
+    if isinstance(value, list):
+        for row in value:
+            if isinstance(row, list):
+                table.append([str(cell) if cell is not None else "" for cell in row])
+    return table
+
+
+def _get_document_record(ws_id: str, document_id: str) -> dict[str, Any]:
+    service = get_workspace_service()
+    documents = service.list_documents(ws_id)
+    for record in documents:
+        if str(record.get("document_id")) == document_id:
+            return record
+    raise HTTPException(status_code=404, detail="document not found")
+
+
+@router.get("/{ws_id}/documents")
+async def list_workspace_documents(ws_id: str) -> dict:
+    service = get_workspace_service()
+    if not service.get_workspace_overview(ws_id):
+        raise HTTPException(status_code=404, detail="workspace not found")
+    documents = service.list_documents(ws_id)
+    return {"items": [_serialise_document(ws_id, record) for record in documents]}
+
+
+@router.get("/{ws_id}/documents/{document_id}")
+async def get_workspace_document(ws_id: str, document_id: str) -> dict:
+    record = _get_document_record(ws_id, document_id)
+    return _serialise_document(ws_id, record)
+
+
+@router.get("/{ws_id}/documents/{document_id}/image")
+async def get_workspace_document_image(ws_id: str, document_id: str) -> FileResponse:
+    record = _get_document_record(ws_id, document_id)
+    rel_path = record.get("document_path")
+    if not rel_path:
+        raise HTTPException(status_code=404, detail="document image not available")
+    root = ensure_workspace_root(ws_id)
+    candidate = (root / Path(rel_path)).resolve()
+    if not str(candidate).startswith(str(root.resolve())):
+        raise HTTPException(status_code=400, detail="invalid document path")
+    if not candidate.exists():
+        raise HTTPException(status_code=404, detail="document image not found")
+    return FileResponse(candidate)
+
+
+@router.put("/{ws_id}/documents/{document_id}")
+async def update_workspace_document(ws_id: str, document_id: str, payload: dict[str, Any]) -> dict:
+    service = get_workspace_service()
+    if not service.get_workspace_overview(ws_id):
+        raise HTTPException(status_code=404, detail="workspace not found")
+
+    updates: dict[str, Any] = {}
+    if "ocr_text" in payload:
+        updates["ocr_text"] = str(payload["ocr_text"] or "")
+    if "ocr_table" in payload:
+        updates["ocr_table"] = _normalise_table(payload["ocr_table"])
+    if "review_status" in payload:
+        updates["review_status"] = str(payload["review_status"] or "")
+    if "ocr_metadata" in payload and isinstance(payload["ocr_metadata"], dict):
+        updates["ocr_metadata"] = payload["ocr_metadata"]
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="no valid updates provided")
+
+    try:
+        updated = service.update_document_record(ws_id, document_id, updates)
+    except KeyError as exc:  # pragma: no cover - defensive, should translate to 404
+        raise HTTPException(status_code=404, detail="document not found") from exc
+    return _serialise_document(ws_id, updated)
