@@ -1,7 +1,17 @@
+"use client";
+
 import { useEffect, useMemo, useState } from 'react';
+
+import Image from 'next/image';
+
+import DataGrid, { type Column, type RowsChangeData, textEditor } from 'react-data-grid';
 
 import { API_BASE_URL } from '../lib/api';
 import { WorkspaceDocument } from '../features/workspaces/services';
+
+type GridRow = {
+  id: number;
+} & Record<string, string>;
 
 type Props = {
   document: WorkspaceDocument;
@@ -11,13 +21,29 @@ type Props = {
   error?: string | null;
 };
 
+function dedupeRepeatingSegments(value: string): string {
+  const trimmed = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!trimmed) {
+    return '';
+  }
+  const tokens = trimmed.split(' ');
+  if (tokens.length <= 1) {
+    return trimmed;
+  }
+  const [first, ...rest] = tokens;
+  if (rest.every((token) => token === first)) {
+    return first;
+  }
+  return trimmed;
+}
+
 function normaliseTable(table: string[][]): string[][] {
   if (!Array.isArray(table) || table.length === 0) {
     return [['']];
   }
   const columnCount = table.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0) || 1;
   return table.map((row) => {
-    const cells = Array.isArray(row) ? row.map((cell) => String(cell ?? '')) : [];
+    const cells = Array.isArray(row) ? row.map((cell) => dedupeRepeatingSegments(cell)) : [];
     while (cells.length < columnCount) {
       cells.push('');
     }
@@ -34,15 +60,39 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
 
   const columnCount = useMemo(() => tableData.reduce((max, row) => Math.max(max, row.length), 0) || 1, [tableData]);
 
-  const handleCellChange = (rowIndex: number, columnIndex: number, value: string) => {
-    setTableData((rows) => {
-      const draft = rows.map((row) => row.slice());
-      if (!draft[rowIndex]) {
-        draft[rowIndex] = new Array(columnCount).fill('');
+  const columns = useMemo<Column<GridRow>[]>(() => {
+    return Array.from({ length: columnCount }, (_, columnIndex) => ({
+      key: `col-${columnIndex}`,
+      name: `列 ${columnIndex + 1}`,
+      editor: textEditor,
+      resizable: true,
+      minWidth: 120,
+      cellClass: 'text-sm text-slate-800',
+      headerCellClass: 'bg-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-500',
+    }));
+  }, [columnCount]);
+
+  const rows = useMemo<GridRow[]>(() => {
+    return tableData.map((row, rowIndex) => {
+      const record: GridRow = { id: rowIndex };
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+        record[`col-${columnIndex}`] = row[columnIndex] ?? '';
       }
-      draft[rowIndex][columnIndex] = value;
-      return draft;
+      return record;
     });
+  }, [tableData, columnCount]);
+
+  const handleRowsChange = (updatedRows: GridRow[], _meta: RowsChangeData<GridRow>) => {
+    setTableData(
+      updatedRows.map((row) => {
+        const cells: string[] = [];
+        for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+          const key = `col-${columnIndex}`;
+          cells.push(dedupeRepeatingSegments(row[key] ?? ''));
+        }
+        return cells;
+      })
+    );
   };
 
   const handleAddRow = () => {
@@ -91,7 +141,16 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
 
         <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6 lg:flex-row">
           <div className="flex-1 overflow-auto rounded border border-slate-200 bg-slate-50 p-4">
-            <img src={imageUrl} alt={document.source_file} className="h-full w-full object-contain" />
+            <div className="relative h-full min-h-[320px] w-full">
+              <Image
+                src={imageUrl}
+                alt={document.source_file}
+                fill
+                sizes="(min-width: 1024px) 50vw, 100vw"
+                className="object-contain"
+                unoptimized
+              />
+            </div>
           </div>
           <div className="flex flex-1 flex-col overflow-hidden rounded border border-slate-200">
             <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
@@ -123,23 +182,17 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
               {error && <p className="text-xs text-red-500">{error}</p>}
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <table className="min-w-full table-fixed border-collapse text-sm">
-                <tbody>
-                  {tableData.map((row, rowIndex) => (
-                    <tr key={rowIndex} className="border-b border-slate-200 last:border-b-0">
-                      {row.map((cell, columnIndex) => (
-                        <td key={columnIndex} className="border-r border-slate-200 last:border-r-0 p-1 align-top">
-                          <input
-                            value={cell}
-                            onChange={(event) => handleCellChange(rowIndex, columnIndex, event.target.value)}
-                            className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-primary focus:outline-none"
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="h-full overflow-hidden rounded-md border border-slate-200">
+                <DataGrid
+                  className="rdg-light h-full"
+                  columns={columns}
+                  rows={rows}
+                  rowKeyGetter={(row) => row.id}
+                  style={{ blockSize: '100%' }}
+                  defaultColumnOptions={{ editorOptions: { editOnClick: true } }}
+                  onRowsChange={handleRowsChange}
+                />
+              </div>
             </div>
           </div>
         </div>

@@ -134,6 +134,22 @@ class IFlyTekOCRClient:
         except (TypeError, ValueError):  # pragma: no cover - defensive
             return None
 
+    @staticmethod
+    def _join_unique(parts: list[str]) -> str:
+        """Join text fragments while removing duplicates and normalising whitespace."""
+
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for part in parts:
+            normalised = " ".join(part.split())
+            if not normalised:
+                continue
+            if normalised in seen:
+                continue
+            seen.add(normalised)
+            cleaned.append(normalised)
+        return " ".join(cleaned)
+
     def _collect_tables(self, data: Any) -> list[list[list[str]]]:
         tables: list[list[list[str]]] = []
 
@@ -203,15 +219,17 @@ class IFlyTekOCRClient:
     def _extract_text(self, node: Any) -> str:
         if isinstance(node, str):
             return node.strip()
+        if isinstance(node, (int, float)):
+            return str(node).strip()
         if isinstance(node, dict):
             pieces: list[str] = []
             for key in ("text", "value", "content", "words"):
                 if key in node:
                     pieces.append(self._extract_text(node[key]))
-            return " ".join(piece for piece in pieces if piece).strip()
+            return self._join_unique(pieces)
         if isinstance(node, list):
             parts = [self._extract_text(item) for item in node]
-            return " ".join(part for part in parts if part).strip()
+            return self._join_unique(parts)
         return ""
 
     # ------------------------------------------------------------------

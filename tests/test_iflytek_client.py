@@ -86,3 +86,65 @@ def test_extract_text_parses_tables(tmp_path, monkeypatch):
 
     client.close()
     http_client.close()
+
+
+def test_extract_text_deduplicates_cell_content(tmp_path, monkeypatch):
+    structured = {
+        "type": "document",
+        "content": [
+            [
+                {
+                    "type": "table",
+                    "cells": [
+                        {
+                            "row": 0,
+                            "col": 0,
+                            "text": "2025年",
+                            "words": [
+                                {"text": "2025年"},
+                                {"text": "2025年"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        ],
+    }
+    encoded = _encode_payload(structured)
+
+    response_body = {
+        "header": {"code": 0, "message": "success", "status": 0},
+        "payload": {
+            "result": {
+                "encoding": "utf8",
+                "compress": "raw",
+                "format": "json",
+                "status": 2,
+                "seq": 0,
+                "text": encoded,
+            }
+        },
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=response_body)
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.Client(transport=transport)
+
+    client = IFlyTekOCRClient("appid", "apikey", "secret", http_client=http_client)
+    monkeypatch.setattr(
+        client,
+        "_build_auth_query",
+        lambda: {"authorization": "AUTH", "host": "cbm01.cn-huabei-1.xf-yun.com", "date": "Wed, 11 Aug 2021 06:55:18 GMT"},
+    )
+
+    image_path = tmp_path / "image.jpg"
+    image_path.write_bytes(b"\xff\xd8\xff")
+
+    result = client.extract_text(image_path)
+
+    assert result.metadata["tables"] == [["2025年"]]
+
+    client.close()
+    http_client.close()
