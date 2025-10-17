@@ -145,46 +145,39 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
   const imagePanelWidthRatio = isTableFullscreen ? 0 : 1 - effectiveTableWidthRatio;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div
-        className={`flex h-full w-full flex-col overflow-hidden rounded-lg bg-white shadow-xl ${
-          isTableFullscreen ? '' : 'max-w-6xl'
-        }`}
-      >
-        <header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">审查识别结果</h2>
-            <p className="text-sm text-slate-500">{document.source_file}</p>
-          </div>
-          <button onClick={onClose} className="text-sm text-slate-500 hover:text-slate-700">
-            关闭
-          </button>
-        </header>
+    <div className="fixed inset-0 z-50 flex flex-col bg-white">
+      <header className="flex items-center justify-between border-b border-slate-200 px-6 py-4 shadow-sm">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">审查识别结果</h2>
+          <p className="text-sm text-slate-500">{document.source_file}</p>
+        </div>
+        <button onClick={onClose} className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+          关闭
+        </button>
+      </header>
 
-        <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6 lg:flex-row">
+      <div className="flex flex-1 flex-col gap-4 overflow-hidden p-4 lg:flex-row lg:p-6">
+        {isTableFullscreen ? null : (
           <div
-            className={`flex overflow-hidden rounded border border-slate-200 transition-[flex] duration-200 ${
-              isTableFullscreen ? 'bg-transparent p-0' : 'bg-slate-50 p-4'
-            }`}
+            className="flex overflow-hidden rounded border border-slate-200 bg-slate-50 p-4 transition-[flex] duration-200"
             style={{ flex: imagePanelWidthRatio }}
           >
-            {!isTableFullscreen && (
-              <div className="relative h-full min-h-[320px] w-full">
-                <Image
-                  src={imageUrl}
-                  alt={document.source_file}
-                  fill
-                  sizes="(min-width: 1024px) 50vw, 100vw"
-                  className="object-contain"
-                  unoptimized
-                />
-              </div>
-            )}
+            <div className="relative h-full min-h-[320px] w-full">
+              <Image
+                src={imageUrl}
+                alt={document.source_file}
+                fill
+                sizes="(min-width: 1024px) 50vw, 100vw"
+                className="object-contain"
+                unoptimized
+              />
+            </div>
           </div>
-          <div
-            className="flex flex-col overflow-hidden rounded border border-slate-200 transition-[flex] duration-200"
-            style={{ flex: effectiveTableWidthRatio }}
-          >
+        )}
+        <div
+          className="flex flex-1 flex-col overflow-hidden rounded border border-slate-200 transition-[flex] duration-200"
+          style={{ flex: effectiveTableWidthRatio }}
+        >
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <div className="flex items-center gap-2">
@@ -268,27 +261,26 @@ export default function OcrReviewDialog({ document, onClose, onConfirm, saving =
                 />
               </div>
             </div>
-          </div>
         </div>
-
-        <footer className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
-          <p className="text-xs text-slate-500">
-            对照原图调整表格后点击确认，系统将保存修改并标记为已审查。
-          </p>
-          <div className="space-x-3">
-            <button onClick={onClose} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600">
-              取消
-            </button>
-            <button
-              onClick={() => onConfirm(tableData)}
-              disabled={saving}
-              className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? '保存中…' : '确认审查结果'}
-            </button>
-          </div>
-        </footer>
       </div>
+
+      <footer className="flex flex-col gap-3 border-t border-slate-200 bg-white px-6 py-4 shadow-inner md:flex-row md:items-center md:justify-between">
+        <p className="text-xs text-slate-500">
+          对照原图调整表格后点击确认，系统将保存修改并标记为已审查。
+        </p>
+        <div className="space-x-3 text-right">
+          <button onClick={onClose} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600">
+            取消
+          </button>
+          <button
+            onClick={() => onConfirm(tableData)}
+            disabled={saving}
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? '保存中' : '确认审查结果'}
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }
